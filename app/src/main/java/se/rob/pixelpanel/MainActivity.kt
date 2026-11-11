@@ -170,6 +170,57 @@ class MainActivity : Activity() {
             }
         }
 
+        // Colours, like Pixel's Wallpaper & style → Colours
+        card("Färger") {
+            it.addView(text("Som på Pixel: färger från bakgrundsbilden eller en grundfärg.", 13f, pal.onSurfaceVariant).apply {
+                setPadding(0, 0, 0, dpi(12f))
+            })
+            val presets = listOf(
+                0 to "Bakgrund", 0xFF1A73E8.toInt() to "Blå", 0xFF00897B.toInt() to "Turkos", 0xFF34A853.toInt() to "Grön",
+                0xFFFBBC04.toInt() to "Gul", 0xFFFF6D00.toInt() to "Orange", 0xFFEA4335.toInt() to "Röd",
+                0xFFE91E63.toInt() to "Rosa", 0xFF8E24AA.toInt() to "Lila", 0xFF757575.toInt() to "Grå",
+            )
+            val current = Prefs.seedColor(this)
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            presets.forEach { (color, name) ->
+                val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+                val swatch = View(this).apply {
+                    val fill = if (color == 0) getColor(android.R.color.system_accent1_400) else color
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL; setColor(fill)
+                        if (color == current) setStroke(dpi(3f), pal.onSurface)
+                    }
+                    setOnClickListener {
+                        Prefs.setSeedColor(this@MainActivity, color)
+                        ShadeService.instance?.rebuildShade()
+                        recreate()
+                    }
+                }
+                col.addView(swatch, LinearLayout.LayoutParams(dpi(44f), dpi(44f)))
+                col.addView(text(name, 11f, pal.onSurfaceVariant).apply { setPadding(0, dpi(4f), 0, 0) })
+                row.addView(col, LinearLayout.LayoutParams(dpi(58f), ViewGroup.LayoutParams.WRAP_CONTENT))
+            }
+            it.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) })
+        }
+
+        // App icon
+        card("Appikon") {
+            it.addView(switch("Dölj Pixelpanel i applådan", Prefs.hideIcon(this)) { on ->
+                Prefs.setHideIcon(this, on)
+                packageManager.setComponentEnabledSetting(
+                    android.content.ComponentName(this, "se.rob.pixelpanel.Launcher"),
+                    if (on) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+            })
+            it.addView(text(
+                "Inställningarna når du sedan genom att hålla in kugghjulet i panelen. " +
+                    "För Lawnchair: välj appen \"Öppna panelen\" som gest för Svep nedåt, så öppnas Pixelpanel i stället för Samsungs panel.",
+                13f, pal.onSurfaceVariant
+            ).apply { setPadding(0, dpi(6f), 0, 0) })
+        }
+
         // 2. Blur
         card("Oskärpa") {
             blurStatus = text("", 15f, pal.onSurface)
@@ -234,6 +285,10 @@ class MainActivity : Activity() {
         }
 
         windowManager.addCrossWindowBlurEnabledListener(mainExecutor, blurListener)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7)
+        }
         try {
             rikka.shizuku.Shizuku.addRequestPermissionResultListener(shizukuResult)
             rikka.shizuku.Shizuku.addBinderReceivedListenerSticky(shizukuBinder)

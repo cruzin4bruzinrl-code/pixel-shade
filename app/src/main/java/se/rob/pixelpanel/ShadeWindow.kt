@@ -286,18 +286,35 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         meter.start(eventUptimeMs)
     }
 
+    /** Finger travel that fully opens the shade. Pixel needs only a short pull, not the whole screen. */
+    private val openDistance: Float get() = ctx.dp(340f)
+
     fun dragTo(dy: Float) {
-        var p = dragStart + dy / height
-        if (p > 1f) p = 1f + (p - 1f) * 0.35f // resistance when pulled past fully open
-        setProgress(p.coerceAtLeast(0f))
+        val p = dragStart + dy / openDistance
+        if (p > 1f) {
+            // Keep pulling past the collapsed shade and quick settings expand, like on Pixel.
+            setProgress(1f)
+            var e = (p - 1f) * openDistance / expandDistance
+            if (e > 1f) e = 1f + (e - 1f) * 0.25f
+            applyExpansion(e)
+        } else {
+            if (expansion != 0f && dragMode == 0) applyExpansion(0f)
+            setProgress(p.coerceAtLeast(0f))
+        }
     }
 
     fun release(vy: Float) {
-        val v = vy / height
+        if (expansion > 0.01f && progress >= 1f) {
+            spring.cancel()
+            if (!isOpen) settled(1f)
+            expandTo(if (expansion > 0.35f || vy > 800f) 1f else 0f, vy / expandDistance)
+            return
+        }
+        val v = vy / openDistance
         val open = when {
-            v > 0.25f -> true
-            v < -0.25f -> false
-            else -> progress > 0.22f
+            v > 0.8f -> true
+            v < -0.8f -> false
+            else -> progress > 0.35f
         }
         animateTo(if (open) 1f else 0f, v)
     }
@@ -389,12 +406,17 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
     private fun setProgress(p: Float) {
         progress = p
-        val h = height
-        content.translationY = if (p <= 1f) (p - 1f) * h else (p - 1f) * h * 0.3f
         val clamped = p.coerceIn(0f, 1f)
+        // Pixel-style reveal: the shade drops in a short way, fades up and settles from 95 % scale,
+        // instead of sliding a whole screen-height sheet down.
+        content.pivotX = content.width / 2f
+        content.pivotY = 0f
+        content.translationY = (clamped - 1f) * ctx.dp(120f) + (p - 1f).coerceAtLeast(0f) * ctx.dp(40f)
+        val sc = 0.95f + 0.05f * clamped
+        content.scaleX = sc; content.scaleY = sc
         scrim.alpha = clamped
         backdrop.alpha = clamped
-        content.alpha = (clamped * 1.6f).coerceAtMost(1f)
+        content.alpha = (clamped * 1.3f).coerceAtMost(1f)
         updateBlur(clamped)
     }
 
@@ -802,6 +824,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         footer.addView(SymbolView(ctx, Sym.SETTINGS, pal.onSurface, 20f, filled = true).apply {
             background = circleBg(pal.tileOff)
             setOnClickListener { startSettings(Intent(Settings.ACTION_SETTINGS)) }
+            setOnLongClickListener { startSettings(Intent(ctx, MainActivity::class.java)); true }
         }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)))
         footer.addView(SymbolView(ctx, Sym.POWER_SETTINGS_NEW, pal.onPrimary, 20f, filled = true).apply {
             background = circleBg(pal.primary)

@@ -29,6 +29,28 @@ class ShadeService : AccessibilityService() {
     companion object {
         @Volatile var instance: ShadeService? = null
             private set
+
+        /** Pixelpanel is off (e.g. bank mode): open Samsung's own panel instead. */
+        @android.annotation.SuppressLint("WrongConstant")
+        fun fallbackPanel(ctx: Context) {
+            try {
+                val sbm = ctx.getSystemService("statusbar")
+                sbm.javaClass.getMethod("expandNotificationsPanel").invoke(sbm)
+            } catch (_: Throwable) { }
+        }
+    }
+
+    // Quick-exit detection for bank mode suggestions
+    private var lastPkg: String? = null
+    private var lastPkgAt = 0L
+    private val homePkg by lazy {
+        packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
+    }
+    private val installReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            if (i.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return
+            i.data?.schemeSpecificPart?.let { BankSuggest.onInstalled(this@ShadeService, it) }
+        }
     }
 
     private lateinit var wm: WindowManager
@@ -87,6 +109,8 @@ class ShadeService : AccessibilityService() {
             addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
         }
         ContextCompat.registerReceiver(this, receiver, f, ContextCompat.RECEIVER_EXPORTED)
+        ContextCompat.registerReceiver(this, installReceiver,
+            IntentFilter(Intent.ACTION_PACKAGE_ADDED).apply { addDataScheme("package") }, ContextCompat.RECEIVER_EXPORTED)
     }
 
     private fun isKeyguardLocked() = getSystemService(KeyguardManager::class.java).isKeyguardLocked
@@ -103,7 +127,7 @@ class ShadeService : AccessibilityService() {
     private fun sizeStrip() {
         val w = resources.displayMetrics.widthPixels
         stripLp.width = if (Prefs.samsungCorner(this)) (w * 0.8f).toInt() else w
-        stripLp.height = statusBarHeight()
+        stripLp.height = statusBarHeight() + dpi(4f)
     }
 
     /** Strip is touchable only when capture is on, the shade is closed and the phone is unlocked. */
@@ -147,6 +171,8 @@ class ShadeService : AccessibilityService() {
         })
     }
 
+    fun rebuildShade() { if (::shade.isInitialized) shade.rebuild() }
+
     fun samsungQuickPanel() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS) }
 
     fun powerMenu() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG) }
@@ -170,6 +196,20 @@ class ShadeService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
+        // Watchdog: make sure the pull-down strip is still there and touchable after every app switch.
+        if (!::wm.isInitialized || instance == null) return
+        strip?.let { if (!it.isAttachedToWindow) try { wm.addView(it, stripLp) } catch (_: Exception) { } }
+        updateStrip()
+        // An app that bounced straight back to the home screen probably refused to run with us on.
+        val now = android.os.SystemClock.uptimeMillis()
+        val prev = lastPkg
+        if (pkg == homePkg && prev != null && prev != homePkg && prev != packageName &&
+            prev != "com.android.systemui" && now - lastPkgAt < 2500 && !BankMode.isBank(this, prev)) {
+            BankSuggest.onQuickExit(this, prev)
+        }
+        if (pkg != "com.android.systemui" && !pkg.contains("inputmethod") && !pkg.contains("honeyboard")) {
+            if (pkg != prev) { lastPkg = pkg; lastPkgAt = now }
+        }
         // Bank mode: step aside before the bank app's security check notices us.
         if (BankMode.isBank(this, pkg) && BankMode.canSwitch(this)) {
             if (::shade.isInitialized) shade.close()
@@ -192,6 +232,7 @@ class ShadeService : AccessibilityService() {
         if (instance == null) return
         instance = null
         try { unregisterReceiver(receiver) } catch (_: Exception) { }
+        try { unregisterReceiver(installReceiver) } catch (_: Exception) { }
         strip?.let { try { wm.removeViewImmediate(it) } catch (_: Exception) { } }
         strip = null
         if (::shade.isInitialized) shade.detach()

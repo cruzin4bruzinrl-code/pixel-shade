@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Pixelpanel</string>
+    <string name="open_shade">Öppna panelen</string>
     <string name="a11y_desc">Fångar svepet nedåt från skärmens överkant och visar en Pixel-panel i stället för Samsungs. Läser ingen text på skärmen. När du drar ner panelen tas en skärmbild som bara används för att göra bakgrunden suddig. Den sparas aldrig.</string>
 </resources>
