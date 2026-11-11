@@ -83,7 +83,13 @@ fun drawSymbol(c: Canvas, sym: String, cx: Float, cy: Float, size: Float, color:
     c.drawText(sym, cx, cy - (fm.ascent + fm.descent) / 2f, p)
 }
 
-/** Quick settings tile. wide = 2x1 with label, otherwise 1x1 icon only. */
+/**
+ * Quick settings tile, shaped after Pixel 10 (Material 3 Expressive):
+ *  - wide tiles are full pills; small tiles are circles when off and morph to a
+ *    rounded square when on, and squeeze further while pressed;
+ *  - dual-target wide tiles (Bluetooth, Modes…) keep a neutral body and show their
+ *    state in the icon container, which is also the toggle target.
+ */
 class Tile(
     ctx: Context,
     private val pal: Palette,
@@ -101,12 +107,15 @@ class Tile(
     /** Wide tiles are dual-target like Pixel 10: the icon toggles, the rest opens details. */
     var onToggle: ((Tile) -> Unit)? = null
     var onLong: ((Tile) -> Unit)? = null
+    /** Neutral body with a coloured icon container instead of a fully filled tile. */
+    var dualStyle = false
 
-    private val restRadius = ctx.dp(if (wide) 24f else 22f)
-    private val pressRadius = ctx.dp(12f)
-    private var radius = restRadius
-    private var fillColor = pal.surfaceContainer
-    private var fgColor = pal.onSurface
+    private val activeSmallRadius = ctx.dp(22f)
+    private var radius = -1f            // -1 = derive from height on first draw
+    private var pressed = false
+    private var fill = pal.tileOff
+    private var fg = pal.onSurface
+    private var iconFill = pal.tileIconOff
 
     private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
     private val iconBg = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -119,7 +128,7 @@ class Tile(
     private val longRunnable = Runnable {
         longFired = true
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        animateRadius(restRadius)
+        pressed = false; morph()
         onLong?.invoke(this)
     }
 
@@ -128,40 +137,57 @@ class Tile(
         contentDescription = label
     }
 
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        super.onSizeChanged(w, h, ow, oh)
+        radius = -1f
+    }
+
+    private fun targetRadius(): Float {
+        val h = height.toFloat().takeIf { it > 0 } ?: return 0f
+        val rest = if (wide) h / 2f else if (on) activeSmallRadius else h / 2f
+        return if (pressed) min(rest, h * 0.28f) else rest
+    }
+
+    private fun morph() {
+        val to = targetRadius()
+        radiusAnim?.cancel()
+        if (!isAttachedToWindow || radius < 0f) { radius = to; invalidate(); return }
+        radiusAnim = ValueAnimator.ofFloat(radius, to).apply {
+            duration = 220; interpolator = OvershootInterpolator(1.2f)
+            addUpdateListener { radius = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    private fun colorsFor(state: Boolean): Triple<Int, Int, Int> = when {
+        dualStyle -> Triple(pal.tileOff, pal.onSurface, if (state) pal.primary else pal.tileIconOff)
+        state -> Triple(pal.primary, pal.onPrimary, 0)
+        else -> Triple(pal.tileOff, pal.onSurface, pal.tileIconOff)
+    }
+
     fun setOn(value: Boolean, animate: Boolean = true) {
-        if (value == on && colorAnim == null) { applyColorsNow(); return }
+        val changed = value != on
         on = value
-        val toFill = if (on) pal.primary else pal.surfaceContainer
-        val toFg = if (on) pal.onPrimary else pal.onSurface
+        val (tFill, tFg, tIcon) = colorsFor(on)
         colorAnim?.cancel(); colorAnim = null
-        if (!animate || !isAttachedToWindow) { fillColor = toFill; fgColor = toFg; invalidate(); return }
-        val fromFill = fillColor; val fromFg = fgColor
+        if (!changed || !animate || !isAttachedToWindow) {
+            fill = tFill; fg = tFg; iconFill = tIcon
+            radius = -1f; invalidate(); return
+        }
+        val f0 = fill; val g0 = fg; val i0 = iconFill
         val ev = ArgbEvaluator()
         colorAnim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 250; interpolator = EMPHASIZED
             addUpdateListener {
                 val f = it.animatedValue as Float
-                fillColor = ev.evaluate(f, fromFill, toFill) as Int
-                fgColor = ev.evaluate(f, fromFg, toFg) as Int
+                fill = ev.evaluate(f, f0, tFill) as Int
+                fg = ev.evaluate(f, g0, tFg) as Int
+                iconFill = ev.evaluate(f, i0, tIcon) as Int
                 invalidate()
             }
             start()
         }
-    }
-
-    private fun applyColorsNow() {
-        fillColor = if (on) pal.primary else pal.surfaceContainer
-        fgColor = if (on) pal.onPrimary else pal.onSurface
-        invalidate()
-    }
-
-    private fun animateRadius(to: Float) {
-        radiusAnim?.cancel()
-        radiusAnim = ValueAnimator.ofFloat(radius, to).apply {
-            duration = 180; interpolator = EMPHASIZED
-            addUpdateListener { radius = it.animatedValue as Float; invalidate() }
-            start()
-        }
+        morph()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -169,46 +195,56 @@ class Tile(
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 longFired = false
-                animateRadius(pressRadius)
+                pressed = true; morph()
                 postDelayed(longRunnable, ViewConfiguration.getLongPressTimeout().toLong())
             }
             MotionEvent.ACTION_MOVE -> if (e.x < 0 || e.y < 0 || e.x > width || e.y > height) {
-                removeCallbacks(longRunnable); animateRadius(restRadius)
+                removeCallbacks(longRunnable); if (pressed) { pressed = false; morph() }
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(longRunnable)
-                if (!longFired && e.x >= 0 && e.y >= 0 && e.x <= width && e.y <= height) {
-                    animateRadius(restRadius)
+                val inside = e.x >= 0 && e.y >= 0 && e.x <= width && e.y <= height
+                pressed = false; morph()
+                if (!longFired && inside) {
                     performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                     val inIcon = wide && e.x < height
                     val t = onToggle
                     if (inIcon && t != null) t(this) else onTap?.invoke(this)
                 }
             }
-            MotionEvent.ACTION_CANCEL -> { removeCallbacks(longRunnable); animateRadius(restRadius) }
+            MotionEvent.ACTION_CANCEL -> { removeCallbacks(longRunnable); pressed = false; morph() }
         }
         return true
     }
 
     override fun onDraw(c: Canvas) {
+        if (radius < 0f) radius = targetRadius()
         r.set(0f, 0f, width.toFloat(), height.toFloat())
-        bg.color = fillColor
+        bg.color = fill
         c.drawRoundRect(r, radius, radius, bg)
         val iconSize = context.dp(24f)
         if (!wide) {
-            drawSymbol(c, symbol, width / 2f, height / 2f, iconSize, fgColor, on)
+            drawSymbol(c, symbol, width / 2f, height / 2f, iconSize, fg, on)
             return
         }
-        val pad = context.dp(12f)
-        val circle = height - pad * 2
-        val ccx = pad + circle / 2; val ccy = height / 2f
-        if (!on) { iconBg.color = pal.surfaceContainerHigh; c.drawCircle(ccx, ccy, circle / 2, iconBg) }
-        drawSymbol(c, symbol, ccx, ccy, iconSize, fgColor, on)
+        val pad = context.dp(10f)
+        val box = height - pad * 2
+        val ccx = pad + box / 2; val ccy = height / 2f
+        val showBox = dualStyle || !on
+        if (showBox) {
+            iconBg.color = iconFill
+            r.set(pad, pad, pad + box, pad + box)
+            // Dual-target toggles are rounded squares; plain inactive tiles a circle.
+            val br = if (dualStyle) box * 0.32f else box / 2f
+            c.drawRoundRect(r, br, br, iconBg)
+        }
+        val iconColor = if (dualStyle && on) pal.onPrimary else fg
+        drawSymbol(c, symbol, ccx, ccy, iconSize, iconColor, on)
 
-        val tx = pad + circle + context.dp(10f)
-        val avail = width - tx - pad
-        labelPaint.color = fgColor
-        secPaint.color = fgColor.withAlpha(if (on) 210 else 180)
+        val tx = pad + box + context.dp(12f)
+        val avail = width - tx - context.dp(14f)
+        labelPaint.color = fg
+        secPaint.color = fg.withAlpha(if (on && !dualStyle) 215 else 185)
         val lbl = TextUtils.ellipsize(label, labelPaint, avail, TextUtils.TruncateAt.END).toString()
         val sec = TextUtils.ellipsize(secondary, secPaint, avail, TextUtils.TruncateAt.END).toString()
         if (sec.isEmpty()) {
@@ -221,18 +257,20 @@ class Tile(
 }
 
 /**
- * Thick Expressive brightness slider with the AOSP perceptual (HLG-style) curve,
- * so the thumb moves the way Pixel's does rather than linearly.
+ * Material 3 Expressive brightness slider as on Pixel 10: filled track, a gap,
+ * a thin vertical handle, a gap, then the inactive track. Uses the AOSP perceptual
+ * (HLG-style) curve so the handle moves the way Pixel's does.
  */
 class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
     var value = 0.5f
         private set
     var onChange: ((Float, Boolean) -> Unit)? = null
     var onFirstTouch: (() -> Boolean)? = null
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
     private val r = RectF()
-    private val clip = Path()
+    private var dragging = false
+    private var handleW = ctx.dp(4f)
 
     fun setLinear(linear01: Float) { value = linearToGamma(linear01); invalidate() }
 
@@ -242,30 +280,56 @@ class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
             MotionEvent.ACTION_DOWN -> {
                 if (onFirstTouch?.invoke() == false) return false
                 parent.requestDisallowInterceptTouchEvent(true)
+                dragging = true; animateHandle(context.dp(2f))
+                update(e)
             }
-            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
-                val nv = ((e.x - height / 2f) / (width - height)).coerceIn(0f, 1f)
-                if ((nv == 0f || nv == 1f) && nv != value) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                value = nv; invalidate()
-                onChange?.invoke(gammaToLinear(nv), e.actionMasked == MotionEvent.ACTION_UP)
+            MotionEvent.ACTION_MOVE -> update(e)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                update(e); dragging = false; animateHandle(context.dp(4f))
             }
         }
         return true
     }
 
+    private fun animateHandle(to: Float) {
+        ValueAnimator.ofFloat(handleW, to).apply {
+            duration = 150; addUpdateListener { handleW = it.animatedValue as Float; invalidate() }; start()
+        }
+    }
+
+    private fun update(e: MotionEvent) {
+        val inset = context.dp(8f)
+        val nv = ((e.x - inset) / (width - inset * 2)).coerceIn(0f, 1f)
+        if ((nv == 0f || nv == 1f) && nv != value) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        value = nv; invalidate()
+        onChange?.invoke(gammaToLinear(nv), e.actionMasked == MotionEvent.ACTION_UP)
+    }
+
+    private fun seg(c: Canvas, l: Float, t: Float, rr: Float, b: Float, rl: Float, rrad: Float, color: Int) {
+        if (rr - l <= 0.5f) return
+        r.set(l, t, rr, b)
+        path.reset()
+        path.addRoundRect(r, floatArrayOf(rl, rl, rrad, rrad, rrad, rrad, rl, rl), Path.Direction.CW)
+        p.color = color
+        c.drawPath(path, p)
+    }
+
     override fun onDraw(c: Canvas) {
         val h = height.toFloat(); val w = width.toFloat()
-        r.set(0f, 0f, w, h)
-        clip.reset(); clip.addRoundRect(r, h / 2, h / 2, Path.Direction.CW)
-        c.save(); c.clipPath(clip)
-        track.color = pal.surfaceContainer
-        c.drawRect(r, track)
-        val fx = h + (w - h) * value
-        fill.color = pal.primary
-        r.set(0f, 0f, fx, h)
-        c.drawRoundRect(r, h / 2, h / 2, fill)
-        c.restore()
-        drawSymbol(c, Sym.LIGHT_MODE, h / 2, h / 2, context.dp(22f), pal.onPrimary, true)
+        val trackT = h * 0.12f; val trackB = h * 0.88f
+        val outer = context.dp(16f); val inner = context.dp(4f)
+        val gap = context.dp(6f)
+        val inset = context.dp(8f)
+        val x = inset + (w - inset * 2) * value
+        // Active part, gap, handle, gap, inactive part
+        seg(c, 0f, trackT, x - gap - handleW / 2, trackB, outer, inner, pal.primary)
+        seg(c, x + gap + handleW / 2, trackT, w, trackB, inner, outer, pal.tileOff)
+        p.color = pal.primary
+        r.set(x - handleW / 2, 0f, x + handleW / 2, h)
+        c.drawRoundRect(r, handleW / 2, handleW / 2, p)
+        val iconX = context.dp(24f)
+        val onActive = x - gap > iconX + context.dp(14f)
+        drawSymbol(c, Sym.LIGHT_MODE, iconX, h / 2, context.dp(20f), if (onActive) pal.onPrimary else pal.onSurface, true)
     }
 
     companion object {

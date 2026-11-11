@@ -147,6 +147,8 @@ class ShadeService : AccessibilityService() {
         })
     }
 
+    fun powerMenu() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG) }
+
     fun lockScreen() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN) }
 
     fun blurSupported() = ::shade.isInitialized && shade.blurSupported

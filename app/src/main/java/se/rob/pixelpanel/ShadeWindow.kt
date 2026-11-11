@@ -505,11 +505,13 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             onLong = { startSettings(Intent(Settings.ACTION_WIFI_SETTINGS)) }
         }
         t("bluetooth", Sym.BLUETOOTH, "Bluetooth", true).apply {
+            dualStyle = true
             onToggle = { shell(this, { on -> "cmd bluetooth_manager ${if (on) "enable" else "disable"} || svc bluetooth ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
             onTap = { startSettings(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
             onLong = onTap
         }
         t("dnd", Sym.DO_NOT_DISTURB_ON, "Stör ej", true).apply {
+            dualStyle = true
             onToggle = {
                 if (NotifStore.service == null) startSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 else { val on = !NotifStore.dndOn(); if (NotifStore.setDnd(on)) { setOn(on); secondary = if (on) "På" else "Av" } }
@@ -545,6 +547,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
         // Page 2
         t("data", Sym.SIGNAL_CELLULAR_ALT, "Mobildata", true).apply {
+            dualStyle = true
             onToggle = { shell(this, { on -> "svc data ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_DATA_ROAMING_SETTINGS)) }
             onTap = { startSettings(Intent(Settings.ACTION_DATA_ROAMING_SETTINGS)) }
         }
@@ -556,6 +559,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             onTap = { startSettings(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
         }
         t("nfc", Sym.NFC, "NFC", true).apply {
+            dualStyle = true
             onToggle = { shell(this, { on -> "svc nfc ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_NFC_SETTINGS)) }
             onTap = { startSettings(Intent(Settings.ACTION_NFC_SETTINGS)) }
         }
@@ -589,36 +593,32 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         content.clipChildren = true
         content.clipToPadding = false
 
-        // Header: clock + date, battery on the right
+        // Header: large clock with the date under it, battery on the right (Pixel 10 expanded shade)
         val header = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
         val clockCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         clockCol.addView(TextClock(ctx).apply {
             format24Hour = "HH:mm"; format12Hour = "HH:mm"
-            textSize = 34f; setTextColor(pal.onSurface); typeface = Fonts.display; includeFontPadding = false
+            textSize = 54f; setTextColor(pal.onSurface); typeface = Fonts.display; includeFontPadding = false
         })
         clockCol.addView(TextClock(ctx).apply {
             format24Hour = "EEE d MMM"; format12Hour = "EEE d MMM"
-            textSize = 14f; setTextColor(pal.onSurfaceVariant); typeface = Fonts.regular
-            setPadding(0, ctx.dpi(4f), 0, 0)
+            textSize = 15f; setTextColor(pal.onSurfaceVariant); typeface = Fonts.regular
+            setPadding(ctx.dpi(2f), ctx.dpi(6f), 0, 0)
         })
         header.addView(clockCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val settingsBtn = SymbolView(ctx, Sym.SETTINGS, pal.onSurface, 22f, filled = false).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pal.card)
-            }
-            setOnClickListener { startSettings(Intent(Settings.ACTION_SETTINGS)) }
-        }
-        batteryView = ctx.label("", 14f, pal.onSurfaceVariant).apply { setPadding(0, 0, ctx.dpi(12f), ctx.dpi(10f)) }
+        batteryView = ctx.label("", 15f, pal.onSurfaceVariant).apply { setPadding(0, 0, ctx.dpi(4f), ctx.dpi(1f)) }
         header.addView(batteryView)
-        header.addView(settingsBtn, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)))
         content.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = ctx.dpi(6f)
+            bottomMargin = ctx.dpi(18f)
         })
 
-        // Test-build diagnostics, kept near the top so it is never cut off.
-        diag = ctx.label(diagText(Prefs.lastStats(ctx)), 10f, pal.onSurfaceVariant, lines = 2)
-        content.addView(diag, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = ctx.dpi(10f)
+        // Brightness sits above the tiles on Pixel 10
+        val s = BrightnessSlider(ctx, pal)
+        s.onFirstTouch = { if (Settings.System.canWrite(ctx)) true else { askWriteSettings(); false } }
+        s.onChange = { linear, _ -> writeBrightness(linear) }
+        slider = s
+        content.addView(s, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply {
+            bottomMargin = ctx.dpi(14f)
         })
 
         // Tiles: two pages, swipe sideways like Pixel
@@ -645,17 +645,22 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         ))
         tilePager = pager
         content.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        content.addView(pager.dots, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(6f)).apply {
-            topMargin = ctx.dpi(10f)
-        })
 
-
-        // Brightness
-        val s = BrightnessSlider(ctx, pal)
-        s.onFirstTouch = { if (Settings.System.canWrite(ctx)) true else { askWriteSettings(); false } }
-        s.onChange = { linear, _ -> writeBrightness(linear) }
-        slider = s
-        content.addView(s, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply {
+        // Footer: page dots on the left, settings and power on the right
+        val footer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        footer.addView(pager.dots.apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL },
+            LinearLayout.LayoutParams(0, ctx.dpi(40f), 1f).apply { marginStart = ctx.dpi(6f) })
+        val circleBg = { color: Int -> android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(color) } }
+        footer.addView(SymbolView(ctx, Sym.SETTINGS, pal.onSurface, 20f, filled = true).apply {
+            background = circleBg(pal.tileOff)
+            setOnClickListener { startSettings(Intent(Settings.ACTION_SETTINGS)) }
+        }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)))
+        footer.addView(SymbolView(ctx, Sym.POWER_SETTINGS_NEW, pal.onPrimary, 20f, filled = true).apply {
+            background = circleBg(pal.primary)
+            setOnClickListener { close(); main.postDelayed({ ShadeService.instance?.powerMenu() }, 300) }
+        }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginStart = ctx.dpi(10f) })
+        content.addView(footer, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(40f)).apply {
             topMargin = ctx.dpi(10f)
         })
 
