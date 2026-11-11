@@ -22,7 +22,7 @@ fun Context.isNight(): Boolean =
  * Palette index -> tone: _0=100, _10=99, _50=95, _100=90, _200=80, _300=70,
  * _400=60, _500=50, _600=40, _700=30, _800=20, _900=10, _1000=0.
  */
-class Palette(ctx: Context) {
+class Palette(private val ctx: Context) {
     private fun c(id: Int) = ctx.getColor(id)
     val night = ctx.isNight()
 
