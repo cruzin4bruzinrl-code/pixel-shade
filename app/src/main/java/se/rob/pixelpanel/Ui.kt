@@ -69,6 +69,14 @@ object Prefs {
     fun tileLayout(ctx: Context): String? = sp(ctx).getString("tileLayout", null)
     fun setTileLayout(ctx: Context, v: String) = sp(ctx).edit().putString("tileLayout", v).apply()
 
+    fun bankModeOn(ctx: Context) = sp(ctx).getBoolean("bankMode", true)
+    fun setBankModeOn(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("bankMode", v).apply()
+    fun bankApps(ctx: Context): Set<String> = sp(ctx).getStringSet("bankApps", null) ?: emptySet()
+    fun setBankApps(ctx: Context, v: Set<String>) = sp(ctx).edit().putStringSet("bankApps", HashSet(v)).apply()
+    fun hasBankApps(ctx: Context) = sp(ctx).contains("bankApps")
+    fun bankSuspended(ctx: Context) = sp(ctx).getBoolean("bankSuspended", false)
+    fun setBankSuspended(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("bankSuspended", v).commit()
+
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
 }

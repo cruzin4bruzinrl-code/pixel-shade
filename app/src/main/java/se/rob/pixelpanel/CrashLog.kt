@@ -37,5 +37,7 @@ class App : Application() {
             CrashLog.write(this, "krasch i ${th.name}", e)
             prev?.uncaughtException(th, e)
         }
+        // Process restarted while a bank app had us switched off: keep watching for it to close.
+        if (Prefs.bankSuspended(this)) BankMode.startWatching(this)
     }
 }

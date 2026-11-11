@@ -167,7 +167,15 @@ class ShadeService : AccessibilityService() {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        // Bank mode: step aside before the bank app's security check notices us.
+        if (BankMode.isBank(this, pkg) && BankMode.canSwitch(this)) {
+            if (::shade.isInitialized) shade.close()
+            BankMode.suspend(this)
+        }
+    }
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {

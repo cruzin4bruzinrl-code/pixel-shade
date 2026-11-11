@@ -29,6 +29,7 @@ class MainActivity : Activity() {
     private lateinit var blurStatus: TextView
     private lateinit var notifStatus: TextView
     private lateinit var shizukuStatus: TextView
+    private lateinit var bankStatus: TextView
     private val shizukuResult = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, _ -> runOnUiThread { refreshShizuku() } }
     private val shizukuBinder = rikka.shizuku.Shizuku.OnBinderReceivedListener { runOnUiThread { refreshShizuku() } }
     private lateinit var statsText: TextView
@@ -135,6 +136,40 @@ class MainActivity : Activity() {
             it.addView(row)
         }
 
+        // Bank mode
+        card("Bankläge") {
+            bankStatus = text("", 15f, pal.onSurface)
+            it.addView(bankStatus)
+            it.addView(text(
+                "Bankappar vägrar starta när Pixelpanel är på. Bankläget stänger av Pixelpanel när en vald app öppnas " +
+                    "och slår på den igen när du lämnar appen. Shizuku behövs bara en gång för att ge behörigheten.",
+                13f, pal.onSurfaceVariant
+            ).apply { setPadding(0, dpi(6f), 0, dpi(10f)) })
+            it.addView(button("Ge behörighet via Shizuku", filled = true) {
+                if (!Shell.granted()) { bankStatus.text = "Starta Shizuku och ge den behörighet först (kortet ovan)."; return@button }
+                BankMode.grant(this) { ok -> refreshBank(); if (!ok) bankStatus.text = "Det gick inte – är Shizuku igång?" }
+            })
+            it.addView(switch("Bankläge på", Prefs.bankModeOn(this)) { on -> Prefs.setBankModeOn(this, on) })
+            it.addView(text("Appar som stänger av Pixelpanel:", 14f, pal.onSurface, bold = true).apply {
+                setPadding(0, dpi(10f), 0, dpi(4f))
+            })
+            val cands = BankMode.candidates(this)
+            if (!Prefs.hasBankApps(this)) {
+                Prefs.setBankApps(this, cands.filter { c -> BankMode.looksLikeBank(c.second) }.map { c -> c.first }.toSet())
+            }
+            val chosen = Prefs.bankApps(this).toMutableSet()
+            cands.forEach { (pkg, label) ->
+                it.addView(android.widget.CheckBox(this).apply {
+                    text = label; textSize = 15f; setTextColor(pal.onSurface)
+                    isChecked = pkg in chosen
+                    setOnCheckedChangeListener { _, c ->
+                        if (c) chosen += pkg else chosen -= pkg
+                        Prefs.setBankApps(this@MainActivity, chosen)
+                    }
+                })
+            }
+        }
+
         // 2. Blur
         card("Oskärpa") {
             blurStatus = text("", 15f, pal.onSurface)
@@ -205,6 +240,12 @@ class MainActivity : Activity() {
         } catch (_: Throwable) { }
     }
 
+    private fun refreshBank() {
+        bankStatus.text = if (BankMode.ready(this)) "Bankläge redo ✓  Fungerar nu även utan Shizuku."
+        else "Behörighet saknas – tryck på knappen nedan med Shizuku igång."
+        bankStatus.setTextColor(if (BankMode.ready(this)) pal.primary else pal.onSurface)
+    }
+
     private fun refreshShizuku() {
         shizukuStatus.text = when {
             packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api") == null -> "Shizuku är inte installerat."
@@ -234,6 +275,7 @@ class MainActivity : Activity() {
         notifStatus.text = (if (nOn) "Notisåtkomst: på ✓" else "Notisåtkomst: av") + "\n" +
             (if (wOn) "Systeminställningar: på ✓" else "Systeminställningar: av")
         refreshShizuku()
+        refreshBank()
         refreshBlur()
         statsText.text = Prefs.lastStats(this) ?: "Ingen mätning än."
         checkUpdate()
