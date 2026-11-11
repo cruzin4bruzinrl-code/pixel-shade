@@ -8,7 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.VelocityTracker
@@ -107,7 +109,35 @@ class ShadeService : AccessibilityService() {
         try { wm.updateViewLayout(v, stripLp) } catch (_: Exception) { }
     }
 
-    fun openShade() { if (::shade.isInitialized) shade.open() }
+    fun openShade() {
+        if (!::shade.isInitialized) return
+        captureBackdrop { shade.open() }
+    }
+
+    private var lastShot = 0L
+
+    /**
+     * Grabs what is on screen right now so the shade can blur it when Samsung's
+     * cross-window blur is off. Calls [then] when done (or failed).
+     */
+    fun captureBackdrop(then: (() -> Unit)? = null) {
+        if (shade.blurSupported) { then?.invoke(); return }
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastShot < 400) { then?.invoke(); return } // system rate limit
+        lastShot = now
+        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+            override fun onSuccess(result: ScreenshotResult) {
+                val bmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                result.hardwareBuffer.close()
+                shade.setBackdrop(bmp)
+                then?.invoke()
+            }
+            override fun onFailure(errorCode: Int) {
+                shade.setBackdrop(null)
+                then?.invoke()
+            }
+        })
+    }
 
     fun blurSupported() = ::shade.isInitialized && shade.blurSupported
 
@@ -162,6 +192,7 @@ class ShadeService : AccessibilityService() {
                 MotionEvent.ACTION_DOWN -> {
                     downY = e.rawY; dragging = false
                     vt?.recycle(); vt = VelocityTracker.obtain(); vt?.addMovement(e)
+                    captureBackdrop()
                 }
                 MotionEvent.ACTION_MOVE -> {
                     vt?.addMovement(e)

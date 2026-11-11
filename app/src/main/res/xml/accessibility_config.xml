@@ -3,6 +3,7 @@
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canRetrieveWindowContent="false"
+    android:canTakeScreenshot="true"
     android:description="@string/a11y_desc"
     android:notificationTimeout="0"
     android:settingsActivity="se.rob.pixelpanel.MainActivity" />

@@ -157,7 +157,7 @@ class MainActivity : Activity() {
     private fun refreshBlur() {
         val enabled = (getSystemService(WINDOW_SERVICE) as WindowManager).isCrossWindowBlurEnabled
         blurStatus.text = if (enabled) "Oskärpa mellan fönster: stöds ✓"
-        else "Oskärpa mellan fönster: AV.\nKolla: Inställningar → Hjälpmedel → Synlighetsförbättringar → stäng av \"Minska genomskinlighet och oskärpa\". " +
+        else "Samsung har stängt av fönsteroskärpan. Pixelpanel suddar i stället en skärmbild av bakgrunden.\n\nVill du prova äkta oskärpa: Inställningar → Hjälpmedel → Synlighetsförbättringar → stäng av \"Minska genomskinlighet och oskärpa\". " +
             "Stäng av energisparläge. Utvecklaralternativ → \"Tillåt oskärpa på fönsternivå\" ska vara på."
     }
 

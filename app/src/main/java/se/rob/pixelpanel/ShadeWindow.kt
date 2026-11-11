@@ -1,7 +1,11 @@
 package se.rob.pixelpanel
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.widget.ImageView
 import android.graphics.Typeface
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -30,6 +34,8 @@ import kotlin.math.roundToInt
 class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
 
     val root = ShadeRoot(ctx)
+    private val backdrop = ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
+    private var hasBackdrop = false
     private val scrim = View(ctx)
     private var content = LinearLayout(ctx)
     private var diag: TextView? = null
@@ -97,6 +103,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
     }
 
     init {
+        root.addView(backdrop, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         build()
         root.visibility = View.INVISIBLE
@@ -130,6 +137,22 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
         try { wm.removeCrossWindowBlurEnabledListener(blurListener) } catch (_: Exception) { }
         try { wm.removeViewImmediate(root) } catch (_: Exception) { }
         attached = false
+    }
+
+    /**
+     * Fallback blur when the system's cross-window blur is off: a screenshot of
+     * what is behind the shade, blurred on the GPU. Null clears it.
+     */
+    fun setBackdrop(bmp: Bitmap?) {
+        backdrop.setImageBitmap(bmp)
+        hasBackdrop = bmp != null
+        if (bmp != null) {
+            val r = ctx.dp(Prefs.blurRadius(ctx).toFloat())
+            backdrop.setRenderEffect(RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+        } else backdrop.setRenderEffect(null)
+        backdrop.alpha = progress.coerceIn(0f, 1f)
+        applyScrimColor()
+        diag?.text = diagText(Prefs.lastStats(ctx))
     }
 
     /** Rebuild content after a theme or orientation change. */
@@ -192,6 +215,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
         content.translationY = if (p <= 1f) (p - 1f) * h else (p - 1f) * h * 0.3f
         val clamped = p.coerceIn(0f, 1f)
         scrim.alpha = clamped
+        backdrop.alpha = clamped
         content.alpha = (clamped * 1.6f).coerceAtMost(1f)
         updateBlur(clamped)
     }
@@ -227,6 +251,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
         if (value <= 0.001f) {
             shown = false; isOpen = false
             root.visibility = View.INVISIBLE
+            setBackdrop(null)
             lp.flags = hiddenFlags
             lp.blurBehindRadius = 0
             currentBlur = -1
@@ -243,12 +268,21 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
 
     private fun applyScrimColor() {
         val pal = Palette(ctx)
-        scrim.setBackgroundColor(pal.scrim.withAlpha(if (blurSupported) 120 else 225))
+        // Pixel's shade backdrop follows the theme: light shade in light mode.
+        val alpha = when {
+            blurSupported -> if (pal.night) 120 else 140
+            hasBackdrop -> if (pal.night) 140 else 160
+            else -> 245
+        }
+        scrim.setBackgroundColor(pal.surface.withAlpha(alpha))
     }
 
     private fun diagText(stats: String?): String {
-        val blur = if (blurSupported) "Oskärpa mellan fönster: PÅ (${Prefs.blurRadius(ctx)} dp)"
-        else "Oskärpa mellan fönster: AV – reservläge med mörk ton"
+        val blur = when {
+            blurSupported -> "Oskärpa: äkta fönsteroskärpa (${Prefs.blurRadius(ctx)} dp)"
+            hasBackdrop -> "Oskärpa: skärmbild (reserv, ${Prefs.blurRadius(ctx)} dp)"
+            else -> "Oskärpa: ingen (skyddad app eller ingen skärmbild)"
+        }
         return if (stats == null) blur else "$blur\n$stats"
     }
 
@@ -286,7 +320,16 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
         batteryView = TextView(ctx).apply { textSize = 14f; setTextColor(pal.onSurfaceVariant) }
         header.addView(batteryView)
         content.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = ctx.dpi(16f)
+            bottomMargin = ctx.dpi(6f)
+        })
+
+        // Test-build diagnostics, kept near the top so it is never cut off.
+        diag = TextView(ctx).apply {
+            textSize = 11f; setTextColor(pal.onSurfaceVariant)
+            text = diagText(Prefs.lastStats(ctx))
+        }
+        content.addView(diag, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = ctx.dpi(12f)
         })
 
         // Tiles
@@ -347,7 +390,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
         s.addCard(NotifCard(ctx, pal, "Gmail", "5 min", "Pixelpanel bygge", "Oskärpa och svep testas i den här versionen", pal.tertiary))
         s.addCard(NotifCard(ctx, pal, "Kalender", "12 min", "Kalibrering", "Måtten justeras mot Pixel 10 i nästa steg", pal.secondary))
         content.addView(s, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ctx.dpi(20f)
+            topMargin = ctx.dpi(16f)
         })
 
         val actions = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
@@ -355,14 +398,6 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) {
         actions.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
         actions.addView(pill(ctx, pal, "Rensa allt") { s.clearAll() })
         content.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = ctx.dpi(12f)
-        })
-
-        diag = TextView(ctx).apply {
-            textSize = 11f; setTextColor(pal.onSurfaceVariant)
-            text = diagText(Prefs.lastStats(ctx))
-        }
-        content.addView(diag, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dpi(12f)
         })
 
