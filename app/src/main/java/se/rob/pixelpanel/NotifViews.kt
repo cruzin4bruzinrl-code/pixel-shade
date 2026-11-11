@@ -42,6 +42,7 @@ import java.util.Date
 /** What the notification views need from the shade. */
 interface NotifHost {
     fun launch(pi: PendingIntent?, fill: Intent? = null, closeShade: Boolean = true)
+    fun openSettings(intent: Intent)
     fun dismiss(keys: List<String>)
     fun focusInput(edit: EditText)
     fun isExpanded(key: String): Boolean
@@ -422,23 +423,50 @@ class GroupCardView(
 
 // ---- Media player -------------------------------------------------------------------------
 
+/**
+ * Pixel-style media player: album art behind a scrim tinted with the art's own colours,
+ * output chip top-right, big play button, and a wavy progress line while playing.
+ */
 class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStore.Entry, private val host: NotifHost) : FrameLayout(ctx) {
     private val controller: MediaController? = run {
         val token = e.n.extras.parcel<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
         token?.let { try { MediaController(ctx, it) } catch (_: Exception) { null } }
     }
     private val art = ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-    private val title = ctx.label("", 17f, Color.WHITE, medium = true)
-    private val artist = ctx.label("", 14f, Color.WHITE.withAlpha(210))
-    private val play = SymbolView(ctx, Sym.PLAY_ARROW, pal.onPrimary, 28f)
+    private val scrimView = View(ctx)
+    private val title = ctx.label("", 18f, Color.WHITE, medium = true)
+    private val artist = ctx.label("", 14f, Color.WHITE.withAlpha(215))
+    private val chipText = ctx.label("", 12f, Color.WHITE, medium = true)
+    private val play = SymbolView(ctx, Sym.PLAY_ARROW, Color.BLACK, 28f)
+    private var accent = pal.primary
+    private var lastArt: Bitmap? = null
+
     private val seek = object : View(ctx) {
-        val p = Paint(Paint.ANTI_ALIAS_FLAG); val r = RectF()
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+        val path = android.graphics.Path()
         var frac = 0f
+        var playing = false
+        var phase = 0f
         override fun onDraw(c: Canvas) {
-            val h = context.dp(4f); val y = height / 2f
-            p.color = Color.WHITE.withAlpha(90); r.set(0f, y - h / 2, width.toFloat(), y + h / 2); c.drawRoundRect(r, h, h, p)
-            p.color = Color.WHITE; r.set(0f, y - h / 2, width * frac, y + h / 2); c.drawRoundRect(r, h, h, p)
-            c.drawCircle(width * frac, y, context.dp(6f), p)
+            val y = height / 2f
+            val x = width * frac
+            val amp = if (playing) context.dp(3f) else 0f
+            val wl = context.dp(22f)
+            p.strokeWidth = context.dp(3f)
+            // Played part: a gentle sine wave that drifts while playing (Pixel's squiggly progress)
+            p.color = Color.WHITE
+            path.reset(); path.moveTo(0f, y)
+            var i = 0f
+            while (i <= x) {
+                path.lineTo(i, y + amp * kotlin.math.sin((i / wl + phase) * 2 * Math.PI).toFloat()); i += 2f
+            }
+            c.drawPath(path, p)
+            p.color = Color.WHITE.withAlpha(90)
+            c.drawLine(x + context.dp(6f), y, width.toFloat(), y, p)
+            // Thumb: a short vertical bar
+            p.color = Color.WHITE; p.strokeWidth = context.dp(4f)
+            c.drawLine(x, y - context.dp(8f), x, y + context.dp(8f), p)
+            if (playing) { phase -= 0.012f; postInvalidateOnAnimation() }
         }
     }
     private val ticker = object : Runnable {
@@ -450,41 +478,61 @@ class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStor
     }
 
     init {
-        background = GradientDrawable().apply { cornerRadius = ctx.dp(28f); setColor(pal.surfaceContainerHigh) }
+        val radius = ctx.dp(28f)
+        background = GradientDrawable().apply { cornerRadius = radius; setColor(pal.primaryContainer) }
         clipToOutline = true
         outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, ctx.dp(28f)) }
+            override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, radius) }
         }
         addView(art, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        addView(View(ctx).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x66000000, 0xCC000000.toInt()))
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(scrimView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val col = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(ctx.dpi(20f), ctx.dpi(18f), ctx.dpi(20f), ctx.dpi(14f))
+            setPadding(ctx.dpi(18f), ctx.dpi(16f), ctx.dpi(16f), ctx.dpi(10f))
         }
+        // Top: app icon, output chip
         val top = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(AppAvatar(ctx, pal, AppInfo.icon(ctx, e.sbn.packageName), null, 22f), LinearLayout.LayoutParams(ctx.dpi(22f), ctx.dpi(22f)).apply { marginEnd = ctx.dpi(8f) })
-        top.addView(ctx.label(AppInfo.label(ctx, e.sbn.packageName), 12f, Color.WHITE.withAlpha(220)))
+        val appPkg = controller?.packageName ?: e.sbn.packageName
+        top.addView(AppAvatar(ctx, pal, AppInfo.icon(ctx, appPkg), null, 24f), LinearLayout.LayoutParams(ctx.dpi(24f), ctx.dpi(24f)))
+        top.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
+        val chip = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dpi(10f), ctx.dpi(5f), ctx.dpi(12f), ctx.dpi(5f))
+            background = GradientDrawable().apply { cornerRadius = ctx.dp(100f); setColor(Color.WHITE.withAlpha(56)) }
+            setOnClickListener { host.openSettings(Intent(android.provider.Settings.Panel.ACTION_VOLUME)) }
+        }
+        val remote = e.n.extras.getCharSequence("android.mediaRemoteDevice")
+        chip.addView(SymbolView(ctx, if (remote != null) Sym.CAST else Sym.VOLUME_UP, Color.WHITE, 16f),
+            LinearLayout.LayoutParams(ctx.dpi(18f), ctx.dpi(18f)).apply { marginEnd = ctx.dpi(6f) })
+        chipText.text = remote ?: "Den här telefonen"
+        chipText.maxWidth = ctx.dpi(150f)
+        chip.addView(chipText)
+        top.addView(chip)
         col.addView(top)
         col.addView(View(ctx), LinearLayout.LayoutParams(1, 0, 1f))
 
-        val bottom = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        // Middle: title/artist, play button
+        val mid = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val texts = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        texts.addView(title); texts.addView(artist.apply { setPadding(0, ctx.dpi(2f), 0, 0) })
-        bottom.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        fun ctl(sym: String, sizeDp: Float, act: () -> Unit) = SymbolView(ctx, sym, Color.WHITE, sizeDp).apply { setOnClickListener { act() } }
-        bottom.addView(ctl(Sym.SKIP_PREVIOUS, 26f) { controller?.transportControls?.skipToPrevious() }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)))
-        play.background = GradientDrawable().apply { cornerRadius = ctx.dp(18f); setColor(pal.primary) }
+        texts.addView(title); texts.addView(artist.apply { setPadding(0, ctx.dpi(3f), 0, 0) })
+        mid.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         play.setOnClickListener {
-            val s = controller?.playbackState?.state
-            if (s == PlaybackState.STATE_PLAYING) controller?.transportControls?.pause() else controller?.transportControls?.play()
+            val st = controller?.playbackState?.state
+            if (st == PlaybackState.STATE_PLAYING) controller?.transportControls?.pause() else controller?.transportControls?.play()
         }
-        bottom.addView(play, LinearLayout.LayoutParams(ctx.dpi(56f), ctx.dpi(48f)).apply { marginStart = ctx.dpi(4f); marginEnd = ctx.dpi(4f) })
-        bottom.addView(ctl(Sym.SKIP_NEXT, 26f) { controller?.transportControls?.skipToNext() }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)))
-        col.addView(bottom)
-        col.addView(seek, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(20f)).apply { topMargin = ctx.dpi(10f) })
+        mid.addView(play, LinearLayout.LayoutParams(ctx.dpi(60f), ctx.dpi(48f)).apply { marginStart = ctx.dpi(10f) })
+        col.addView(mid)
+
+        // Bottom: previous, progress, next
+        val bottom = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        fun ctl(sym: String, act: () -> Unit) = SymbolView(ctx, sym, Color.WHITE, 24f).apply { setOnClickListener { act() } }
+        bottom.addView(ctl(Sym.SKIP_PREVIOUS) { controller?.transportControls?.skipToPrevious() }, LinearLayout.LayoutParams(ctx.dpi(36f), ctx.dpi(36f)))
+        bottom.addView(seek, LinearLayout.LayoutParams(0, ctx.dpi(28f), 1f).apply { marginStart = ctx.dpi(6f); marginEnd = ctx.dpi(6f) })
+        bottom.addView(ctl(Sym.SKIP_NEXT) { controller?.transportControls?.skipToNext() }, LinearLayout.LayoutParams(ctx.dpi(36f), ctx.dpi(36f)))
+        col.addView(bottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = ctx.dpi(8f)
+        })
         seek.setOnTouchListener { v, ev ->
             if (ev.actionMasked == MotionEvent.ACTION_DOWN) v.parent.requestDisallowInterceptTouchEvent(true)
             if (ev.actionMasked == MotionEvent.ACTION_UP) {
@@ -498,17 +546,43 @@ class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStor
         bind()
     }
 
+    private fun applyArtColors(bmp: Bitmap?) {
+        if (bmp != null && bmp === lastArt) return
+        lastArt = bmp
+        var base = pal.primaryContainer.let { if (pal.night) it else android.graphics.Color.rgb(40, 40, 52) }
+        var acc = pal.primary
+        if (bmp != null) {
+            try {
+                val sw = if (bmp.config == Bitmap.Config.HARDWARE) bmp.copy(Bitmap.Config.ARGB_8888, false) else bmp
+                val pl = androidx.palette.graphics.Palette.from(sw).maximumColorCount(16).generate()
+                base = pl.getDarkMutedColor(pl.getDarkVibrantColor(base))
+                acc = pl.getLightVibrantColor(pl.getVibrantColor(pl.getLightMutedColor(acc)))
+            } catch (_: Exception) { }
+        }
+        accent = acc
+        scrimView.background = GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(base.withAlpha(if (bmp != null) 235 else 255), base.withAlpha(if (bmp != null) 140 else 255))
+        )
+        play.background = GradientDrawable().apply { cornerRadius = context.dp(18f); setColor(acc) }
+        val lum = android.graphics.Color.luminance(acc)
+        play.color = if (lum > 0.45f) Color.BLACK else Color.WHITE
+        play.invalidate()
+    }
+
     private fun bind() {
         val md = controller?.metadata
         val ex = e.n.extras
         title.text = md?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: ex.getCharSequence(Notification.EXTRA_TITLE) ?: ""
         artist.text = md?.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: ex.getCharSequence(Notification.EXTRA_TEXT) ?: ""
         val bmp = md?.getBitmap(MediaMetadata.METADATA_KEY_ART) ?: md?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-        if (bmp != null) art.setImageBitmap(bmp)
-        else art.setImageDrawable(try { e.n.getLargeIcon()?.loadDrawable(context) } catch (_: Exception) { null })
+            ?: (try { e.n.getLargeIcon()?.loadDrawable(context) as? android.graphics.drawable.BitmapDrawable } catch (_: Exception) { null })?.bitmap
+        art.setImageBitmap(bmp)
+        applyArtColors(bmp)
         val playing = controller?.playbackState?.state == PlaybackState.STATE_PLAYING
         play.symbol = if (playing) Sym.PAUSE else Sym.PLAY_ARROW
         play.invalidate()
+        seek.playing = playing
         updateSeek()
     }
 
@@ -564,7 +638,7 @@ class NotifList(ctx: Context, private val pal: Palette, private val host: NotifH
         val media = entries.filter { it.n.isMedia() }
         media.sortedByDescending { it.sbn.postTime }.take(2).forEach {
             try {
-                addView(MediaCard(ctx, pal, it, host), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(168f)).apply {
+                addView(MediaCard(ctx, pal, it, host), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(176f)).apply {
                     bottomMargin = ctx.dpi(12f)
                 })
             } catch (t: Throwable) { CrashLog.write(ctx, "media", t) }

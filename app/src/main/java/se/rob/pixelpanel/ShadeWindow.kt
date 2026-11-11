@@ -54,16 +54,42 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private val backdrop = ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
     private var hasBackdrop = false
     private val scrim = View(ctx)
-    private var content = LinearLayout(ctx)
+    private var content = FrameLayout(ctx)
     private var diag: TextView? = null
     private var notifList: NotifList? = null
     private var notifScroll: ScrollView? = null
     private var clearAllPill: View? = null
     private var batteryView: TextView? = null
+    private var battery: BatteryPill? = null
+    private var netIcon: SymbolView? = null
     private var slider: BrightnessSlider? = null
     private var tilePager: TilePager? = null
     private val tiles = HashMap<String, Tile>()
     private val expandedKeys = HashSet<String>()
+
+    // Two-stage layout pieces (collapsed shade -> fully expanded quick settings)
+    private var qsBlock: LinearLayout? = null
+    private var notifPanel: LinearLayout? = null
+    private val expandOnly = ArrayList<View>()
+    private var collapsedQsH = 0      // visible QS height when collapsed (first tile row)
+    private var fullQsH = 0           // QS height when expanded (all rows + footer)
+    private var panelTop = 0          // y where the notification panel starts when collapsed
+
+    var expansion = 0f
+        private set
+    private var expStart = 0f
+    private var dragMode = 0 // 0 = close/open shade, 1 = expand/collapse quick settings
+    private val clip = android.graphics.Rect()
+
+    private val expProp = object : FloatPropertyCompat<ShadeWindow>("expansion") {
+        override fun getValue(o: ShadeWindow) = o.expansion
+        override fun setValue(o: ShadeWindow, v: Float) = o.applyExpansion(v)
+    }
+    private val expSpring = SpringAnimation(this, expProp).apply {
+        spring = SpringForce().apply { dampingRatio = 0.85f; stiffness = 420f }
+        setMinimumVisibleChange(0.0005f)
+    }
+
 
     var progress = 0f
         private set
@@ -144,17 +170,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         root.addView(scrim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         build()
         root.visibility = View.INVISIBLE
-        root.onDragStart = { beginDrag(0) }
-        root.onDrag = { dy -> dragTo(dy) }
-        root.onRelease = { vy -> release(vy) }
-        root.onBack = { close() }
-        root.childScrolls = { x, y ->
-            val s = notifScroll
-            if (s == null) false else {
-                val loc = IntArray(2); s.getLocationOnScreen(loc)
-                x >= loc[0] && x <= loc[0] + s.width && y >= loc[1] && y <= loc[1] + s.height && s.canScrollVertically(1)
-            }
-        }
+        root.onDragStart = { dy -> shadeDragStart(dy) }
+        root.onDrag = { dy -> shadeDrag(dy) }
+        root.onRelease = { vy -> shadeRelease(vy) }
+        root.onBack = { if (expansion > 0.01f) expandTo(0f) else close() }
+        root.takesDrag = { x, y, dy -> shadeTakesDrag(x, y, dy) }
 
         torchId?.let { id ->
             try {
@@ -208,14 +228,14 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         if (isOpen || shown) { rebuildPending = true; return }
         rebuildPending = false
         root.removeView(content)
-        content = LinearLayout(ctx)
+        content = FrameLayout(ctx)
         tiles.clear()
         build()
         notifsDirty = true
     }
 
     private val height: Float
-        get() = content.height.takeIf { it > 0 }?.toFloat() ?: screenHeight().toFloat()
+        get() = screenHeight().toFloat()
 
     private fun screenHeight(): Int = try { wm.currentWindowMetrics.bounds.height() }
         catch (_: Exception) { ctx.resources.displayMetrics.heightPixels }
@@ -253,6 +273,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     fun close() {
         if (!shown) return
         hideIme()
+        if (expansion > 0.01f) expandTo(0f)
         meter.start(0)
         animateTo(0f, 0f)
     }
@@ -278,6 +299,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         } catch (_: Exception) { }
         if (closeShade) close()
     }
+
+    override fun openSettings(intent: Intent) = startSettings(intent)
 
     override fun dismiss(keys: List<String>) {
         dismissingUntil = SystemClock.uptimeMillis() + 600
@@ -372,6 +395,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         if (value <= 0.001f) {
             shown = false; isOpen = false
             root.visibility = View.INVISIBLE
+            expSpring.cancel(); applyExpansion(0f)
             setBackdrop(null)
             lp.flags = hiddenFlags
             lp.blurBehindRadius = 0
@@ -410,7 +434,17 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private fun refreshBattery() {
         val bm = ctx.getSystemService(BatteryManager::class.java)
         val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        batteryView?.text = "$pct %"
+        battery?.set(pct, bm.isCharging)
+        val cm = ctx.getSystemService(ConnectivityManager::class.java)
+        val caps = try { cm.getNetworkCapabilities(cm.activeNetwork) } catch (_: Exception) { null }
+        netIcon?.apply {
+            symbol = when {
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> Sym.WIFI
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> Sym.SIGNAL_CELLULAR_ALT
+                else -> Sym.SIGNAL_CELLULAR_OFF
+            }
+            invalidate()
+        }
     }
 
     // ---- System tiles -------------------------------------------------------------------
@@ -586,14 +620,14 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private fun build() {
         val pal = Palette(ctx)
         val pad = ctx.dpi(16f)
-        content.orientation = LinearLayout.VERTICAL
-        content.setPadding(pad, ctx.statusBarHeight() + ctx.dpi(8f), pad, navBarHeight() + ctx.dpi(10f))
-        // Must stay true: clipChildren=false here would stop the notification ScrollView
-        // from clipping its cards, so they bled under the tiles and the bottom pills.
         content.clipChildren = true
-        content.clipToPadding = false
 
-        // Header: large clock with the date under it, battery on the right (Pixel 10 expanded shade)
+        val top = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, ctx.statusBarHeight() + ctx.dpi(8f), pad, 0)
+        }
+
+        // Header: large clock + date on the left; status icons and battery on the right
         val header = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
         val clockCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         clockCol.addView(TextClock(ctx).apply {
@@ -606,18 +640,24 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             setPadding(ctx.dpi(2f), ctx.dpi(6f), 0, 0)
         })
         header.addView(clockCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        batteryView = ctx.label("", 15f, pal.onSurfaceVariant).apply { setPadding(0, 0, ctx.dpi(4f), ctx.dpi(1f)) }
-        header.addView(batteryView)
-        content.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        val status = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        netIcon = SymbolView(ctx, Sym.WIFI, pal.onSurface, 18f)
+        status.addView(netIcon, LinearLayout.LayoutParams(ctx.dpi(22f), ctx.dpi(22f)).apply { marginEnd = ctx.dpi(6f) })
+        battery = BatteryPill(ctx, pal)
+        status.addView(battery, LinearLayout.LayoutParams(ctx.dpi(34f), ctx.dpi(18f)))
+        header.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = ctx.dpi(1f)
+        })
+        top.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = ctx.dpi(18f)
         })
 
         // Brightness sits above the tiles on Pixel 10
-        val s = BrightnessSlider(ctx, pal)
-        s.onFirstTouch = { if (Settings.System.canWrite(ctx)) true else { askWriteSettings(); false } }
-        s.onChange = { linear, _ -> writeBrightness(linear) }
-        slider = s
-        content.addView(s, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply {
+        val sl = BrightnessSlider(ctx, pal)
+        sl.onFirstTouch = { if (Settings.System.canWrite(ctx)) true else { askWriteSettings(); false } }
+        sl.onChange = { linear, _ -> writeBrightness(linear) }
+        slider = sl
+        top.addView(sl, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply {
             bottomMargin = ctx.dpi(14f)
         })
 
@@ -639,12 +679,10 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
                 addView(r, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, tileH).apply { if (i > 0) topMargin = gap })
             }
         }
-        val pager = TilePager(ctx, pal, listOf(
-            pageOf(row("internet", "bluetooth"), row("dnd", "torch"), row("airplane", "saver", "rotate", "location")),
-            pageOf(row("data", "dark"), row("hotspot", "nfc"), row("camera", "alarm", "cast", "screenoff")),
-        ))
+        val p1r2 = row("dnd", "torch"); val p1r3 = row("airplane", "saver", "rotate", "location")
+        val page2 = pageOf(row("data", "dark"), row("hotspot", "nfc"), row("camera", "alarm", "cast", "screenoff"))
+        val pager = TilePager(ctx, pal, listOf(pageOf(row("internet", "bluetooth"), p1r2, p1r3), page2))
         tilePager = pager
-        content.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // Footer: page dots on the left, settings and power on the right
         val footer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -660,11 +698,22 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             background = circleBg(pal.primary)
             setOnClickListener { close(); main.postDelayed({ ShadeService.instance?.powerMenu() }, 300) }
         }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginStart = ctx.dpi(10f) })
-        content.addView(footer, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(40f)).apply {
+
+        val qs = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        qs.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        qs.addView(footer, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(40f)).apply {
             topMargin = ctx.dpi(10f)
         })
+        qsBlock = qs
+        top.addView(qs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        expandOnly.clear(); expandOnly += listOf(p1r2, p1r3, page2, footer)
 
-        // Notifications: scrolls inside the remaining space
+        // Notification panel: starts under the first tile row, slides down when QS expands
+        val panel = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, 0, pad, navBarHeight() + ctx.dpi(10f))
+            isClickable = true // swallow taps so the hidden tiles below can't be hit
+        }
         val list = NotifList(ctx, pal, this)
         notifList = list
         val scroll = object : ScrollView(ctx) {
@@ -683,8 +732,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         notifScroll = scroll
-        content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
+        panel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val actions = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(pill(ctx, pal, "Hantera") {
             startSettings(Intent(if (Build.VERSION.SDK_INT >= 32) Settings.ACTION_ALL_APPS_NOTIFICATION_SETTINGS else "android.settings.NOTIFICATION_SETTINGS"))
@@ -692,13 +740,98 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         actions.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
         clearAllPill = pill(ctx, pal, "Rensa allt") { list.clearAll() }
         actions.addView(clearAllPill)
-        content.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        panel.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dpi(8f)
         })
+        notifPanel = panel
+
+        content.addView(top, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        content.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
+
+        // Once laid out, measure the collapsed/expanded geometry and size the notification panel.
+        top.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            val newCollapsed = tileH
+            val newFull = qs.height
+            val newTop = qs.top + tileH
+            if (newCollapsed != collapsedQsH || newFull != fullQsH || newTop != panelTop) {
+                collapsedQsH = newCollapsed; fullQsH = newFull; panelTop = newTop
+                val lpPanel = panel.layoutParams as FrameLayout.LayoutParams
+                lpPanel.topMargin = panelTop
+                lpPanel.height = screenHeight() - panelTop
+                panel.post { panel.layoutParams = lpPanel; applyExpansion(expansion) }
+            }
+        }
 
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
         content.translationY = -10000f
         scrim.alpha = 0f
         applyScrimColor()
+        applyExpansion(0f)
+    }
+
+    // ---- Quick settings expansion (second pull) -------------------------------------------
+
+    private val expandDistance: Float get() = (fullQsH - collapsedQsH).coerceAtLeast(1).toFloat()
+
+    private fun applyExpansion(e: Float) {
+        expansion = e
+        val c = e.coerceIn(0f, 1f)
+        val qs = qsBlock ?: return
+        val extra = expandDistance * e
+        clip.set(0, 0, qs.width.coerceAtLeast(1), (collapsedQsH + extra).toInt().coerceAtLeast(1))
+        qs.clipBounds = clip
+        notifPanel?.translationY = extra
+        notifPanel?.alpha = 1f - (c * 1.4f).coerceAtMost(1f)
+        val a = ((c - 0.15f) / 0.85f).coerceIn(0f, 1f)
+        expandOnly.forEach { it.alpha = a }
+        tilePager?.swipeEnabled = c > 0.98f
+        if (c < 0.02f) tilePager?.reset()
+    }
+
+    fun expandTo(target: Float, velocity: Float = 0f) {
+        expSpring.setStartVelocity(velocity)
+        expSpring.animateToFinalPosition(target)
+    }
+
+    /** Which way a vertical drag inside the open shade should go. */
+    private fun shadeTakesDrag(x: Float, y: Float, dy: Float): Boolean {
+        val s = notifScroll
+        val inScroll = s != null && expansion < 0.02f && run {
+            val loc = IntArray(2); s.getLocationOnScreen(loc)
+            x >= loc[0] && x <= loc[0] + s.width && y >= loc[1] && y <= loc[1] + s.height
+        }
+        return if (dy < 0) {
+            expansion > 0.01f || !(inScroll && s!!.canScrollVertically(1))
+        } else {
+            expansion < 0.99f && !(inScroll && s!!.canScrollVertically(-1))
+        }
+    }
+
+    private fun shadeDragStart(dy: Float) {
+        if (dy > 0 || expansion > 0.01f) {
+            dragMode = 1
+            expSpring.cancel()
+            expStart = expansion
+        } else {
+            dragMode = 0
+            beginDrag(0)
+        }
+    }
+
+    private fun shadeDrag(dy: Float) {
+        if (dragMode == 1) {
+            var e = expStart + dy / expandDistance
+            if (e > 1f) e = 1f + (e - 1f) * 0.25f
+            if (e < 0f) e *= 0.25f
+            applyExpansion(e)
+        } else dragTo(kotlin.math.min(0f, dy))
+    }
+
+    private fun shadeRelease(vy: Float) {
+        if (dragMode == 1) {
+            val v = vy / expandDistance
+            val target = when { v > 1.2f -> 1f; v < -1.2f -> 0f; else -> if (expansion > 0.5f) 1f else 0f }
+            expandTo(target, v)
+        } else release(vy)
     }
 }

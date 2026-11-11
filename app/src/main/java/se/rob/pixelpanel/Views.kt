@@ -316,14 +316,14 @@ class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
 
     override fun onDraw(c: Canvas) {
         val h = height.toFloat(); val w = width.toFloat()
-        val trackT = h * 0.12f; val trackB = h * 0.88f
+        val trackT = h * 0.08f; val trackB = h * 0.92f
         val outer = context.dp(16f); val inner = context.dp(4f)
         val gap = context.dp(6f)
         val inset = context.dp(8f)
         val x = inset + (w - inset * 2) * value
         // Active part, gap, handle, gap, inactive part
         seg(c, 0f, trackT, x - gap - handleW / 2, trackB, outer, inner, pal.primary)
-        seg(c, x + gap + handleW / 2, trackT, w, trackB, inner, outer, pal.tileOff)
+        seg(c, x + gap + handleW / 2, trackT, w, trackB, inner, outer, pal.sliderTrack)
         p.color = pal.primary
         r.set(x - handleW / 2, 0f, x + handleW / 2, h)
         c.drawRoundRect(r, handleW / 2, handleW / 2, p)
@@ -514,38 +514,45 @@ class NotifStack(ctx: Context) : LinearLayout(ctx) {
 }
 
 /**
- * Full-screen root of the shade window. Intercepts upward drags to close the
- * shade (unless a scrollable child under the finger can still scroll), and the back key.
+ * Full-screen root of the shade window. Owns vertical drags inside the open shade:
+ * down expands quick settings, up collapses them or closes the shade. A scrollable
+ * child under the finger keeps the drag while it can still scroll that way.
  */
 class ShadeRoot(ctx: Context) : FrameLayout(ctx) {
-    var onDragStart: (() -> Unit)? = null
+    var onDragStart: ((Float) -> Unit)? = null
     var onDrag: ((Float) -> Unit)? = null
     var onRelease: ((Float) -> Unit)? = null
     var onBack: (() -> Unit)? = null
-    /** Returns true if a child at (rawX, rawY) should get the upward drag instead. */
-    var childScrolls: ((Float, Float) -> Boolean)? = null
+    /** (rawX, rawY, dy) -> true if the shade should take this vertical drag. */
+    var takesDrag: ((Float, Float, Float) -> Boolean)? = null
 
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
     private var downX = 0f; private var downY = 0f
     private var dragging = false
-    private var childOwns = false
     private var vt: VelocityTracker? = null
 
     init { isFocusableInTouchMode = true }
+
+    private fun tryStart(e: MotionEvent): Boolean {
+        val dy = e.rawY - downY; val dx = e.rawX - downX
+        if (abs(dy) > slop && abs(dy) > abs(dx) && takesDrag?.invoke(downX, downY, dy) != false) {
+            dragging = true
+            downY = e.rawY - (if (dy > 0) slop else -slop).toFloat() // no jump when the drag kicks in
+            onDragStart?.invoke(dy)
+            return true
+        }
+        return false
+    }
 
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.rawX; downY = e.rawY; dragging = false
-                childOwns = childScrolls?.invoke(e.rawX, e.rawY) == true
                 vt?.recycle(); vt = VelocityTracker.obtain(); vt?.addMovement(e)
             }
             MotionEvent.ACTION_MOVE -> {
                 vt?.addMovement(e)
-                val dy = e.rawY - downY; val dx = e.rawX - downX
-                if (!childOwns && dy < -slop && abs(dy) > abs(dx)) {
-                    dragging = true; onDragStart?.invoke(); return true
-                }
+                if (!dragging && tryStart(e)) return true
             }
         }
         return false
@@ -557,9 +564,8 @@ class ShadeRoot(ctx: Context) : FrameLayout(ctx) {
             MotionEvent.ACTION_DOWN -> return true
             MotionEvent.ACTION_MOVE -> {
                 vt?.addMovement(e)
-                val dy = e.rawY - downY
-                if (!dragging && dy < -slop) { dragging = true; onDragStart?.invoke() }
-                if (dragging) onDrag?.invoke(min(0f, dy))
+                if (!dragging) tryStart(e)
+                if (dragging) onDrag?.invoke(e.rawY - downY)
             }
             MotionEvent.ACTION_UP -> {
                 vt?.addMovement(e)
@@ -584,6 +590,32 @@ class ShadeRoot(ctx: Context) : FrameLayout(ctx) {
     }
 }
 
+/** Pixel-style battery: a rounded pill with the percentage inside, filled to the charge level. */
+class BatteryPill(ctx: Context, private val pal: Palette) : View(ctx) {
+    private var pct = 100
+    private var charging = false
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Fonts.medium }
+    private val r = RectF()
+
+    fun set(percent: Int, isCharging: Boolean) { pct = percent.coerceIn(0, 100); charging = isCharging; invalidate() }
+
+    override fun onDraw(c: Canvas) {
+        val h = height.toFloat(); val w = width.toFloat() - context.dp(2.5f)
+        r.set(0f, 0f, w, h)
+        p.color = pal.onSurface.withAlpha(70); c.drawRoundRect(r, h * 0.36f, h * 0.36f, p)
+        c.save(); c.clipRect(0f, 0f, w * pct / 100f, h)
+        p.color = if (charging) pal.primary else pal.onSurface; c.drawRoundRect(r, h * 0.36f, h * 0.36f, p)
+        c.restore()
+        r.set(w + context.dp(0.8f), h * 0.32f, w + context.dp(2.5f), h * 0.68f)
+        p.color = pal.onSurface.withAlpha(110); c.drawRoundRect(r, context.dp(1f), context.dp(1f), p)
+        tp.textSize = h * 0.7f
+        tp.color = if (pct > 45) (if (charging) pal.onPrimary else pal.surface) else pal.onSurface
+        val fm = tp.fontMetrics
+        c.drawText("$pct", w / 2f, h / 2f - (fm.ascent + fm.descent) / 2f, tp)
+    }
+}
+
 fun pill(ctx: Context, pal: Palette, text: String, onClick: () -> Unit): TextView =
     ctx.label(text, 14f, pal.onSurface, medium = true).apply {
         gravity = Gravity.CENTER
@@ -595,6 +627,8 @@ fun pill(ctx: Context, pal: Palette, text: String, onClick: () -> Unit): TextVie
 
 /** Horizontally paged tile grid with Pixel's page dots. */
 class TilePager(ctx: Context, private val pal: Palette, private val pages: List<View>) : FrameLayout(ctx) {
+    /** Off while quick settings are collapsed, so only the first page's first row is in play. */
+    var swipeEnabled = true
     val dots = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
     private var page = 0
     private var downX = 0f; private var downY = 0f
@@ -643,7 +677,7 @@ class TilePager(ctx: Context, private val pal: Palette, private val pages: List<
             MotionEvent.ACTION_MOVE -> {
                 vt?.addMovement(e)
                 val dx = e.x - downX; val dy = e.y - downY
-                if (abs(dx) > slop && abs(dx) > abs(dy) * 1.3f) {
+                if (swipeEnabled && abs(dx) > slop && abs(dx) > abs(dy) * 1.3f) {
                     dragging = true
                     parent.requestDisallowInterceptTouchEvent(true)
                     return true

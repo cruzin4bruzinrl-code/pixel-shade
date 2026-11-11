@@ -34,6 +34,8 @@ class Palette(private val ctx: Context) {
     val card = if (night) c(android.R.color.system_neutral1_800) else c(android.R.color.system_neutral1_10)
     /** Inactive QS tile: translucent so the blurred backdrop shows through, like Pixel 10. */
     val tileOff = if (night) c(android.R.color.system_neutral1_800).withAlpha(215) else c(android.R.color.system_neutral1_10).withAlpha(190)
+    /** Inactive part of the brightness slider: secondary container, clearly visible over the blur. */
+    val sliderTrack = if (night) c(android.R.color.system_accent2_800) else c(android.R.color.system_accent2_100)
     /** Icon container inside an inactive wide tile. */
     val tileIconOff = if (night) c(android.R.color.system_neutral2_700).withAlpha(200) else c(android.R.color.system_neutral2_100).withAlpha(220)
     val surfaceContainer = if (night) c(android.R.color.system_neutral1_800) else c(android.R.color.system_neutral1_100)
