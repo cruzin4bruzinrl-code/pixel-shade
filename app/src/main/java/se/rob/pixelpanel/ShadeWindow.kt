@@ -213,7 +213,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private val height: Float
         get() = content.height.takeIf { it > 0 }?.toFloat() ?: screenHeight().toFloat()
 
-    private fun screenHeight() = wm.currentWindowMetrics.bounds.height()
+    private fun screenHeight(): Int = try { wm.currentWindowMetrics.bounds.height() }
+        catch (_: Exception) { ctx.resources.displayMetrics.heightPixels }
 
     // ---- Gesture API used by the service's top strip --------------------------------
 
@@ -313,7 +314,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val list = notifList ?: return
         val keys = NotifStore.entries.map { it.key }.toSet() + NotifStore.entries.map { it.sbn.groupKey }
         expandedKeys.retainAll(keys)
-        list.render(NotifStore.entries, NotifStore.service != null)
+        try { list.render(NotifStore.entries, NotifStore.service != null) }
+        catch (t: Throwable) { CrashLog.write(ctx, "render", t) }
         clearAllPill?.visibility = if (list.hasClearable) View.VISIBLE else View.INVISIBLE
         notifsDirty = false
     }

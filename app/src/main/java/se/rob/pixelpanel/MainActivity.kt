@@ -54,6 +54,26 @@ class MainActivity : Activity() {
             setPadding(0, dpi(4f), 0, dpi(16f))
         })
 
+        // Last crash, if any
+        CrashLog.read(this)?.let { log ->
+            card("Senaste krasch") { c ->
+                c.addView(text("Skärmdumpa eller kopiera och skicka till Claude.", 13f, pal.onSurfaceVariant).apply {
+                    setPadding(0, 0, 0, dpi(8f))
+                })
+                c.addView(text(log, 11f, pal.onSurface).apply {
+                    setTextIsSelectable(true); typeface = android.graphics.Typeface.MONOSPACE
+                })
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dpi(10f), 0, 0) }
+                row.addView(button("Kopiera", filled = true) {
+                    val cm = getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Pixelpanel krasch", log))
+                })
+                row.addView(space(dpi(8f)))
+                row.addView(button("Rensa", filled = false) { CrashLog.clear(this); recreate() })
+                c.addView(row)
+            }
+        }
+
         // 1. Service
         card("1 · Slå på tjänsten") {
             serviceStatus = text("", 15f, pal.onSurface)

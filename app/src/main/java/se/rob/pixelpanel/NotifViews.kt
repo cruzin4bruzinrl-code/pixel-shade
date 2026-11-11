@@ -69,7 +69,7 @@ object AppInfo {
 private fun Bundle.cs(key: String): CharSequence? = getCharSequence(key)
 
 @Suppress("DEPRECATION")
-private fun <T : Parcelable> Bundle.parcel(key: String): T? = try { get(key) as? T } catch (_: Exception) { null }
+private inline fun <reified T : Parcelable> Bundle.parcel(key: String): T? = try { get(key) as? T } catch (_: Exception) { null }
 
 fun Notification.isSummary() = (flags and Notification.FLAG_GROUP_SUMMARY) != 0
 fun Notification.isMedia() = extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
@@ -424,8 +424,7 @@ class GroupCardView(
 
 class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStore.Entry, private val host: NotifHost) : FrameLayout(ctx) {
     private val controller: MediaController? = run {
-        @Suppress("DEPRECATION")
-        val token = e.n.extras.getParcelable<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
+        val token = e.n.extras.parcel<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
         token?.let { try { MediaController(ctx, it) } catch (_: Exception) { null } }
     }
     private val art = ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
@@ -564,9 +563,11 @@ class NotifList(ctx: Context, private val pal: Palette, private val host: NotifH
         }
         val media = entries.filter { it.n.isMedia() }
         media.sortedByDescending { it.sbn.postTime }.take(2).forEach {
-            addView(MediaCard(ctx, pal, it, host), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(168f)).apply {
-                bottomMargin = ctx.dpi(12f)
-            })
+            try {
+                addView(MediaCard(ctx, pal, it, host), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(168f)).apply {
+                    bottomMargin = ctx.dpi(12f)
+                })
+            } catch (t: Throwable) { CrashLog.write(ctx, "media", t) }
         }
 
         val items = entries.filter { !it.n.isMedia() }
@@ -589,9 +590,13 @@ class NotifList(ctx: Context, private val pal: Palette, private val host: NotifH
         fun stackOf(list: List<Item>): NotifStack = NotifStack(ctx).apply {
             onDismiss = { card -> host.dismiss(card.dismissKeys) }
             list.forEach { i ->
-                val v = if (i.members.size >= 2) GroupCardView(ctx, pal, i.summary, i.members, host)
-                else NotifCardView(ctx, pal, i.members.first(), host, listOfNotNull(i.summary?.key))
-                addCard(v)
+                try {
+                    val v = if (i.members.size >= 2) GroupCardView(ctx, pal, i.summary, i.members, host)
+                    else NotifCardView(ctx, pal, i.members.first(), host, listOfNotNull(i.summary?.key))
+                    addCard(v)
+                } catch (t: Throwable) {
+                    CrashLog.write(ctx, "kort ${i.members.first().sbn.packageName}", t)
+                }
             }
         }
 

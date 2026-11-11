@@ -63,6 +63,14 @@ class ShadeService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        try { start() } catch (t: Throwable) {
+            // Never crash-loop: record why and stay idle so Samsung's shade keeps working.
+            CrashLog.write(this, "start", t)
+            cleanup()
+        }
+    }
+
+    private fun start() {
         instance = this
         wm = getSystemService(WindowManager::class.java)
         shade = ShadeWindow(this, wm)
