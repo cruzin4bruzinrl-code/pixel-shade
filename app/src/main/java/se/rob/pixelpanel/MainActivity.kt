@@ -27,6 +27,7 @@ class MainActivity : Activity() {
     private lateinit var serviceStatus: TextView
     private lateinit var serviceButtons: LinearLayout
     private lateinit var blurStatus: TextView
+    private lateinit var notifStatus: TextView
     private lateinit var statsText: TextView
     private lateinit var updateText: TextView
     private lateinit var updateButton: Button
@@ -49,7 +50,7 @@ class MainActivity : Activity() {
         setContentView(scroll)
 
         list.addView(text("Pixelpanel", 32f, pal.onSurface, bold = false))
-        list.addView(text("Testversion ${BuildConfig.VERSION_NAME} · oskärpa och svep", 14f, pal.onSurfaceVariant).apply {
+        list.addView(text("Version ${BuildConfig.VERSION_NAME}", 14f, pal.onSurfaceVariant).apply {
             setPadding(0, dpi(4f), 0, dpi(16f))
         })
 
@@ -73,8 +74,28 @@ class MainActivity : Activity() {
             it.addView(serviceButtons)
         }
 
+        // 1b. Notification access + system settings
+        card("2 · Notiser och inställningar") {
+            notifStatus = text("", 15f, pal.onSurface)
+            it.addView(notifStatus)
+            it.addView(text(
+                "Notisåtkomst låter panelen visa, svara på och rensa dina aviseringar. " +
+                    "Ändra systeminställningar behövs för ljusstyrka och autorotering.",
+                13f, pal.onSurfaceVariant
+            ).apply { setPadding(0, dpi(6f), 0, dpi(10f)) })
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(button("Notisåtkomst", filled = true) {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            })
+            row.addView(space(dpi(8f)))
+            row.addView(button("Systeminställningar", filled = false) {
+                startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+            })
+            it.addView(row)
+        }
+
         // 2. Blur
-        card("2 · Oskärpa") {
+        card("3 · Oskärpa") {
             blurStatus = text("", 15f, pal.onSurface)
             it.addView(blurStatus)
             val radiusLabel = text("", 13f, pal.onSurfaceVariant).apply { setPadding(0, dpi(12f), 0, 0) }
@@ -97,7 +118,7 @@ class MainActivity : Activity() {
         }
 
         // 3. Swipe
-        card("3 · Svep") {
+        card("4 · Svep") {
             it.addView(switch("Fånga svepet nedåt", Prefs.captureEnabled(this)) { on ->
                 Prefs.setCaptureEnabled(this, on); ShadeService.instance?.updateStrip()
             })
@@ -116,7 +137,7 @@ class MainActivity : Activity() {
         }
 
         // 4. Last measurement
-        card("4 · Senaste mätning") {
+        card("5 · Senaste mätning") {
             statsText = text("", 14f, pal.onSurface)
             it.addView(statsText)
             it.addView(text(
@@ -149,6 +170,10 @@ class MainActivity : Activity() {
         val on = ShadeService.instance != null
         serviceStatus.text = if (on) "Tjänsten är på ✓  Svep ner från statusraden." else "Tjänsten är av."
         serviceStatus.setTextColor(if (on) pal.primary else pal.onSurface)
+        val nOn = NotifStore.service != null
+        val wOn = Settings.System.canWrite(this)
+        notifStatus.text = (if (nOn) "Notisåtkomst: på ✓" else "Notisåtkomst: av") + "\n" +
+            (if (wOn) "Systeminställningar: på ✓" else "Systeminställningar: av")
         refreshBlur()
         statsText.text = Prefs.lastStats(this) ?: "Ingen mätning än."
         checkUpdate()
