@@ -147,6 +147,8 @@ class ShadeService : AccessibilityService() {
         })
     }
 
+    fun lockScreen() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN) }
+
     fun blurSupported() = ::shade.isInitialized && shade.blurSupported
 
     override fun onConfigurationChanged(newConfig: Configuration) {

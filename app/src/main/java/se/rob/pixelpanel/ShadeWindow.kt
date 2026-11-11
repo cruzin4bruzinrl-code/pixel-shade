@@ -61,6 +61,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var clearAllPill: View? = null
     private var batteryView: TextView? = null
     private var slider: BrightnessSlider? = null
+    private var tilePager: TilePager? = null
     private val tiles = HashMap<String, Tile>()
     private val expandedKeys = HashSet<String>()
 
@@ -201,8 +202,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     /** Rebuild content after a theme or orientation change. */
+    private var rebuildPending = false
+
     fun rebuild() {
-        if (isOpen || shown) return
+        if (isOpen || shown) { rebuildPending = true; return }
+        rebuildPending = false
         root.removeView(content)
         content = LinearLayout(ctx)
         tiles.clear()
@@ -351,6 +355,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         try { refreshBattery(); refreshBrightness() } catch (t: Throwable) { CrashLog.write(ctx, "batteri/ljus", t) }
         if (notifsDirty) renderNotifs()
         notifScroll?.scrollTo(0, 0)
+        tilePager?.reset()
         root.visibility = View.VISIBLE
         lp.flags = hiddenFlags or (if (blurSupported) WindowManager.LayoutParams.FLAG_BLUR_BEHIND else 0)
         currentBlur = -1
@@ -373,6 +378,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             currentBlur = -1
             if (attached) wm.updateViewLayout(root, lp)
             onStateChanged?.invoke(false)
+            if (rebuildPending) rebuild()
         } else if (!isOpen) {
             isOpen = true
             lp.flags = baseFlags or (if (blurSupported) WindowManager.LayoutParams.FLAG_BLUR_BEHIND else 0)
@@ -446,6 +452,20 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             val on = ctx.getSystemService(LocationManager::class.java).isLocationEnabled
             t.symbol = Sym.LOCATION_ON; t.setOn(on)
         }
+        tiles["data"]?.let { t ->
+            val on = Settings.Global.getInt(ctx.contentResolver, "mobile_data", 1) == 1
+            t.symbol = if (on) Sym.SIGNAL_CELLULAR_ALT else Sym.SIGNAL_CELLULAR_OFF
+            t.secondary = if (on) "På" else "Av"; t.setOn(on)
+        }
+        tiles["dark"]?.let { t ->
+            val on = ctx.isNight(); t.secondary = if (on) "På" else "Av"; t.setOn(on)
+        }
+        tiles["hotspot"]?.let { t -> t.secondary = "Inställningar"; t.setOn(false) }
+        tiles["nfc"]?.let { t ->
+            val on = try { android.nfc.NfcAdapter.getDefaultAdapter(ctx)?.isEnabled == true } catch (_: Exception) { false }
+            t.secondary = if (on) "På" else "Av"; t.setOn(on)
+        }
+        listOf("camera", "alarm", "cast", "screenoff").forEach { tiles[it]?.setOn(false) }
     }
 
     private fun refreshBrightness() {
@@ -463,33 +483,50 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${ctx.packageName}"))
     )
 
+    /** Flip a system toggle through Shizuku, or fall back to its settings page. */
+    private fun shell(tile: Tile, cmd: (Boolean) -> String, fallback: Intent) {
+        if (!Shell.granted()) { startSettings(fallback); return }
+        val target = !tile.on
+        tile.setOn(target)
+        Shell.run(cmd(target)) { ok ->
+            if (!ok) CrashLog.write(ctx, "shizuku", RuntimeException("Kommandot misslyckades: ${cmd(target)}"))
+            main.postDelayed({ refreshTiles() }, 600)
+        }
+    }
+
     private fun makeTiles(pal: Palette) {
         fun t(id: String, sym: String, label: String, wide: Boolean) =
             Tile(ctx, pal, sym, label, "", wide).also { tiles[id] = it }
 
+        // Page 1
         t("internet", Sym.WIFI, "Internet", true).apply {
+            onToggle = { shell(this, { on -> "cmd wifi set-wifi-enabled ${if (on) "enabled" else "disabled"}" }, Intent(Settings.ACTION_WIFI_SETTINGS)) }
             onTap = { startSettings(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)) }
             onLong = { startSettings(Intent(Settings.ACTION_WIFI_SETTINGS)) }
         }
         t("bluetooth", Sym.BLUETOOTH, "Bluetooth", true).apply {
+            onToggle = { shell(this, { on -> "cmd bluetooth_manager ${if (on) "enable" else "disable"} || svc bluetooth ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
             onTap = { startSettings(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
             onLong = onTap
         }
         t("dnd", Sym.DO_NOT_DISTURB_ON, "Stör ej", true).apply {
-            onTap = {
+            onToggle = {
                 if (NotifStore.service == null) startSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 else { val on = !NotifStore.dndOn(); if (NotifStore.setDnd(on)) { setOn(on); secondary = if (on) "På" else "Av" } }
             }
-            onLong = { startSettings(Intent("android.settings.ZEN_MODE_SETTINGS")) }
+            onTap = { startSettings(Intent("android.settings.ZEN_MODE_SETTINGS")) }
+            onLong = onTap
         }
         t("torch", Sym.FLASHLIGHT_ON, "Ficklampa", true).apply {
             onTap = { torchId?.let { try { cameraManager.setTorchMode(it, !torchOn) } catch (_: Exception) { } } }
         }
         t("airplane", Sym.AIRPLANEMODE_ACTIVE, "Flygplansläge", false).apply {
-            onTap = { startSettings(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)) }
+            onTap = { shell(this, { on -> "cmd connectivity airplane-mode ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)) }
+            onLong = { startSettings(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)) }
         }
         t("saver", Sym.BATTERY_SAVER, "Batterisparläge", false).apply {
-            onTap = { startSettings(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) }
+            onTap = { shell(this, { on -> "cmd power set-mode ${if (on) 1 else 0}" }, Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) }
+            onLong = { startSettings(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) }
         }
         t("rotate", Sym.SCREEN_ROTATION, "Rotera automatiskt", false).apply {
             onTap = {
@@ -502,7 +539,37 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             }
         }
         t("location", Sym.LOCATION_ON, "Plats", false).apply {
-            onTap = { startSettings(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+            onTap = { shell(this, { on -> "cmd location set-location-enabled $on" }, Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+            onLong = { startSettings(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+        }
+
+        // Page 2
+        t("data", Sym.SIGNAL_CELLULAR_ALT, "Mobildata", true).apply {
+            onToggle = { shell(this, { on -> "svc data ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_DATA_ROAMING_SETTINGS)) }
+            onTap = { startSettings(Intent(Settings.ACTION_DATA_ROAMING_SETTINGS)) }
+        }
+        t("dark", Sym.DARK_MODE, "Mörkt tema", true).apply {
+            onTap = { shell(this, { on -> "cmd uimode night ${if (on) "yes" else "no"}" }, Intent(Settings.ACTION_DISPLAY_SETTINGS)) }
+            onLong = { startSettings(Intent(Settings.ACTION_DISPLAY_SETTINGS)) }
+        }
+        t("hotspot", Sym.WIFI_TETHERING, "Surfzon", true).apply {
+            onTap = { startSettings(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
+        }
+        t("nfc", Sym.NFC, "NFC", true).apply {
+            onToggle = { shell(this, { on -> "svc nfc ${if (on) "enable" else "disable"}" }, Intent(Settings.ACTION_NFC_SETTINGS)) }
+            onTap = { startSettings(Intent(Settings.ACTION_NFC_SETTINGS)) }
+        }
+        t("camera", Sym.PHOTO_CAMERA, "Kamera", false).apply {
+            onTap = { startSettings(Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)) }
+        }
+        t("alarm", Sym.ALARM, "Alarm", false).apply {
+            onTap = { startSettings(Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS)) }
+        }
+        t("cast", Sym.CAST, "Casta skärmen", false).apply {
+            onTap = { startSettings(Intent(Settings.ACTION_CAST_SETTINGS)) }
+        }
+        t("screenoff", Sym.POWER_SETTINGS_NEW, "Lås skärmen", false).apply {
+            onTap = { close(); main.postDelayed({ ShadeService.instance?.lockScreen() }, 350) }
         }
     }
 
@@ -554,7 +621,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             bottomMargin = ctx.dpi(10f)
         })
 
-        // Tiles
+        // Tiles: two pages, swipe sideways like Pixel
         makeTiles(pal)
         val gap = ctx.dpi(8f)
         val tileH = ctx.dpi(68f)
@@ -566,24 +633,22 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             }
             return r
         }
-        val lpRow = { top: Int -> LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, tileH).apply { topMargin = top } }
-        content.addView(row("internet", "bluetooth"), lpRow(0))
-        content.addView(row("dnd", "torch"), lpRow(gap))
-        content.addView(row("airplane", "saver", "rotate", "location"), lpRow(gap))
-
-        // Page dots
-        val dots = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        for (i in 0 until 2) {
-            dots.addView(View(ctx).apply {
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(if (i == 0) pal.onSurface else pal.onSurfaceVariant.withAlpha(110))
-                }
-            }, LinearLayout.LayoutParams(ctx.dpi(6f), ctx.dpi(6f)).apply { marginStart = ctx.dpi(3f); marginEnd = ctx.dpi(3f) })
+        fun pageOf(vararg rows: LinearLayout) = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            rows.forEachIndexed { i, r ->
+                addView(r, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, tileH).apply { if (i > 0) topMargin = gap })
+            }
         }
-        content.addView(dots, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(6f)).apply {
+        val pager = TilePager(ctx, pal, listOf(
+            pageOf(row("internet", "bluetooth"), row("dnd", "torch"), row("airplane", "saver", "rotate", "location")),
+            pageOf(row("data", "dark"), row("hotspot", "nfc"), row("camera", "alarm", "cast", "screenoff")),
+        ))
+        tilePager = pager
+        content.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        content.addView(pager.dots, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(6f)).apply {
             topMargin = ctx.dpi(10f)
         })
+
 
         // Brightness
         val s = BrightnessSlider(ctx, pal)

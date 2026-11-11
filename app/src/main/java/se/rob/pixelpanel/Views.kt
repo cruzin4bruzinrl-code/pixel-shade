@@ -98,6 +98,8 @@ class Tile(
     var secondary: String = secondary
         set(v) { field = v; invalidate() }
     var onTap: ((Tile) -> Unit)? = null
+    /** Wide tiles are dual-target like Pixel 10: the icon toggles, the rest opens details. */
+    var onToggle: ((Tile) -> Unit)? = null
     var onLong: ((Tile) -> Unit)? = null
 
     private val restRadius = ctx.dp(if (wide) 24f else 22f)
@@ -178,7 +180,9 @@ class Tile(
                 if (!longFired && e.x >= 0 && e.y >= 0 && e.x <= width && e.y <= height) {
                     animateRadius(restRadius)
                     performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                    onTap?.invoke(this)
+                    val inIcon = wide && e.x < height
+                    val t = onToggle
+                    if (inIcon && t != null) t(this) else onTap?.invoke(this)
                 }
             }
             MotionEvent.ACTION_CANCEL -> { removeCallbacks(longRunnable); animateRadius(restRadius) }
@@ -523,3 +527,99 @@ fun pill(ctx: Context, pal: Palette, text: String, onClick: () -> Unit): TextVie
         background = GradientDrawable().apply { setColor(pal.card); cornerRadius = ctx.dp(100f) }
         setOnClickListener { onClick() }
     }
+
+
+/** Horizontally paged tile grid with Pixel's page dots. */
+class TilePager(ctx: Context, private val pal: Palette, private val pages: List<View>) : FrameLayout(ctx) {
+    val dots = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+    private var page = 0
+    private var downX = 0f; private var downY = 0f
+    private var dragging = false
+    private var vt: VelocityTracker? = null
+    private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
+
+    init {
+        pages.forEach { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
+        pages.indices.forEach { _ ->
+            dots.addView(View(ctx), LinearLayout.LayoutParams(ctx.dpi(6f), ctx.dpi(6f)).apply {
+                marginStart = ctx.dpi(3f); marginEnd = ctx.dpi(3f)
+            })
+        }
+        updateDots()
+        clipChildren = true
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        if (!dragging) place(0f)
+    }
+
+    private fun place(offset: Float) {
+        val w = width.toFloat()
+        pages.forEachIndexed { i, v -> v.translationX = (i - page) * w + offset }
+    }
+
+    private fun updateDots() {
+        for (i in 0 until dots.childCount) {
+            dots.getChildAt(i).background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(if (i == page) pal.onSurface else pal.onSurfaceVariant.withAlpha(110))
+            }
+        }
+    }
+
+    fun reset() { page = 0; place(0f); updateDots() }
+
+    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = e.x; downY = e.y; dragging = false
+                vt?.recycle(); vt = VelocityTracker.obtain(); vt?.addMovement(e)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                vt?.addMovement(e)
+                val dx = e.x - downX; val dy = e.y - downY
+                if (abs(dx) > slop && abs(dx) > abs(dy) * 1.3f) {
+                    dragging = true
+                    parent.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        vt?.addMovement(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> return true
+            MotionEvent.ACTION_MOVE -> if (dragging) {
+                var dx = e.x - downX
+                if ((page == 0 && dx > 0) || (page == pages.size - 1 && dx < 0)) dx *= 0.3f
+                place(dx)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                vt?.computeCurrentVelocity(1000)
+                val vx = vt?.xVelocity ?: 0f
+                val dx = e.x - downX
+                val target = when {
+                    !dragging -> page
+                    dx < -width / 3f || vx < -800 -> (page + 1).coerceAtMost(pages.size - 1)
+                    dx > width / 3f || vx > 800 -> (page - 1).coerceAtLeast(0)
+                    else -> page
+                }
+                if (target != page) performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                page = target
+                val w = width.toFloat()
+                pages.forEachIndexed { i, v ->
+                    v.animate().translationX((i - page) * w).setDuration(350)
+                        .setInterpolator(OvershootInterpolator(0.8f)).start()
+                }
+                updateDots()
+                dragging = false
+            }
+        }
+        return true
+    }
+}

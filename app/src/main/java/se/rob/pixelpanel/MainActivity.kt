@@ -28,6 +28,9 @@ class MainActivity : Activity() {
     private lateinit var serviceButtons: LinearLayout
     private lateinit var blurStatus: TextView
     private lateinit var notifStatus: TextView
+    private lateinit var shizukuStatus: TextView
+    private val shizukuResult = rikka.shizuku.Shizuku.OnRequestPermissionResultListener { _, _ -> runOnUiThread { refreshShizuku() } }
+    private val shizukuBinder = rikka.shizuku.Shizuku.OnBinderReceivedListener { runOnUiThread { refreshShizuku() } }
     private lateinit var statsText: TextView
     private lateinit var updateText: TextView
     private lateinit var updateButton: Button
@@ -114,8 +117,26 @@ class MainActivity : Activity() {
             it.addView(row)
         }
 
+        // Shizuku: real on/off for Wi-Fi, Bluetooth, data, airplane, battery saver, location, dark theme, NFC
+        card("Shizuku · riktiga av/på-knappar") {
+            shizukuStatus = text("", 15f, pal.onSurface)
+            it.addView(shizukuStatus)
+            it.addView(text(
+                "Starta Shizuku (öppna appen → Starta via trådlös felsökning) och tryck sedan Ge behörighet. " +
+                    "Shizuku måste startas om efter varje omstart av telefonen.",
+                13f, pal.onSurfaceVariant
+            ).apply { setPadding(0, dpi(6f), 0, dpi(10f)) })
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(button("Ge behörighet", filled = true) { Shell.requestPermission(); refreshShizuku() })
+            row.addView(space(dpi(8f)))
+            row.addView(button("Öppna Shizuku", filled = false) {
+                packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")?.let { i -> startActivity(i) }
+            })
+            it.addView(row)
+        }
+
         // 2. Blur
-        card("3 · Oskärpa") {
+        card("Oskärpa") {
             blurStatus = text("", 15f, pal.onSurface)
             it.addView(blurStatus)
             val radiusLabel = text("", 13f, pal.onSurfaceVariant).apply { setPadding(0, dpi(12f), 0, 0) }
@@ -138,7 +159,7 @@ class MainActivity : Activity() {
         }
 
         // 3. Swipe
-        card("4 · Svep") {
+        card("Svep") {
             it.addView(switch("Fånga svepet nedåt", Prefs.captureEnabled(this)) { on ->
                 Prefs.setCaptureEnabled(this, on); ShadeService.instance?.updateStrip()
             })
@@ -157,7 +178,7 @@ class MainActivity : Activity() {
         }
 
         // 4. Last measurement
-        card("5 · Senaste mätning") {
+        card("Senaste mätning") {
             statsText = text("", 14f, pal.onSurface)
             it.addView(statsText)
             it.addView(text(
@@ -178,10 +199,28 @@ class MainActivity : Activity() {
         }
 
         windowManager.addCrossWindowBlurEnabledListener(mainExecutor, blurListener)
+        try {
+            rikka.shizuku.Shizuku.addRequestPermissionResultListener(shizukuResult)
+            rikka.shizuku.Shizuku.addBinderReceivedListenerSticky(shizukuBinder)
+        } catch (_: Throwable) { }
+    }
+
+    private fun refreshShizuku() {
+        shizukuStatus.text = when {
+            packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api") == null -> "Shizuku är inte installerat."
+            !Shell.binderAlive() -> "Shizuku är installerat men inte startat."
+            !Shell.granted() -> "Shizuku körs – behörighet saknas."
+            else -> "Shizuku: på ✓  Knapparna slår av och på direkt."
+        }
+        shizukuStatus.setTextColor(if (Shell.granted()) pal.primary else pal.onSurface)
     }
 
     override fun onDestroy() {
         try { windowManager.removeCrossWindowBlurEnabledListener(blurListener) } catch (_: Exception) { }
+        try {
+            rikka.shizuku.Shizuku.removeRequestPermissionResultListener(shizukuResult)
+            rikka.shizuku.Shizuku.removeBinderReceivedListener(shizukuBinder)
+        } catch (_: Throwable) { }
         super.onDestroy()
     }
 
@@ -194,6 +233,7 @@ class MainActivity : Activity() {
         val wOn = Settings.System.canWrite(this)
         notifStatus.text = (if (nOn) "Notisåtkomst: på ✓" else "Notisåtkomst: av") + "\n" +
             (if (wOn) "Systeminställningar: på ✓" else "Systeminställningar: av")
+        refreshShizuku()
         refreshBlur()
         statsText.text = Prefs.lastStats(this) ?: "Ingen mätning än."
         checkUpdate()
