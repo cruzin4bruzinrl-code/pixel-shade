@@ -348,8 +348,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         shown = true
         applyScrimColor()
         refreshTiles()
-        refreshBattery()
-        refreshBrightness()
+        try { refreshBattery(); refreshBrightness() } catch (t: Throwable) { CrashLog.write(ctx, "batteri/ljus", t) }
         if (notifsDirty) renderNotifs()
         notifScroll?.scrollTo(0, 0)
         root.visibility = View.VISIBLE
@@ -411,6 +410,10 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     // ---- System tiles -------------------------------------------------------------------
 
     private fun refreshTiles() {
+        try { refreshTilesUnsafe() } catch (t: Throwable) { CrashLog.write(ctx, "knappar", t) }
+    }
+
+    private fun refreshTilesUnsafe() {
         tiles["internet"]?.let { t ->
             val cm = ctx.getSystemService(ConnectivityManager::class.java)
             val caps = cm.getNetworkCapabilities(cm.activeNetwork)
