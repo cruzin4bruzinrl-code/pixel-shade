@@ -154,6 +154,21 @@ class ShadeService : AccessibilityService() {
      * cross-window blur is off. Calls [then] when done (or failed).
      */
     private var lastColorCheck = 0L
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val learnFromHome = Runnable {
+        if (lastPkg != homePkg || shade.isOpen) return@Runnable
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastShot < 400) return@Runnable
+        lastShot = now; lastColorCheck = now
+        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+            override fun onSuccess(result: ScreenshotResult) {
+                val bmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                result.hardwareBuffer.close()
+                if (bmp != null) WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
+            }
+            override fun onFailure(errorCode: Int) {}
+        })
+    }
 
     fun captureBackdrop(then: (() -> Unit)? = null) {
         val now = android.os.SystemClock.uptimeMillis()
@@ -221,6 +236,13 @@ class ShadeService : AccessibilityService() {
         }
         if (pkg != "com.android.systemui" && !pkg.contains("inputmethod") && !pkg.contains("honeyboard")) {
             if (pkg != prev) { lastPkg = pkg; lastPkgAt = now }
+        }
+        // Back on the home screen with unknown (or stale) wallpaper colours: learn them quietly now,
+        // so the shade already has the right colours the next time it is pulled down.
+        if (pkg == homePkg && Prefs.seedColor(this) == 0 && ::shade.isInitialized && !shade.isOpen &&
+            (Prefs.wallSeed(this) == 0 || now - lastColorCheck > 120_000)) {
+            mainHandler.removeCallbacks(learnFromHome)
+            mainHandler.postDelayed(learnFromHome, 700)
         }
         // Bank mode: step aside before the bank app's security check notices us.
         if (BankMode.isBank(this, pkg) && BankMode.canSwitch(this)) {

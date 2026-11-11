@@ -877,6 +877,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             isVerticalScrollBarEnabled = false
             clipToPadding = false
             setPadding(0, ctx.dpi(16f), 0, ctx.dpi(8f))
+            // Cards fade out under the tiles when scrolled, instead of being cut off flat.
+            isVerticalFadingEdgeEnabled = true
+            setFadingEdgeLength(ctx.dpi(24f))
             addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         notifScroll = scroll
