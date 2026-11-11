@@ -86,7 +86,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         override fun setValue(o: ShadeWindow, v: Float) = o.applyExpansion(v)
     }
     private val expSpring = SpringAnimation(this, expProp).apply {
-        spring = SpringForce().apply { dampingRatio = 0.85f; stiffness = 420f }
+        spring = SpringForce().apply { dampingRatio = 0.86f; stiffness = 800f }
         setMinimumVisibleChange(0.0005f)
     }
 
@@ -149,7 +149,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         override fun setValue(o: ShadeWindow, v: Float) = o.setProgress(v)
     }
     private val spring = SpringAnimation(this, prop).apply {
-        spring = SpringForce().apply { dampingRatio = 0.8f; stiffness = 380f }
+        spring = SpringForce().apply { dampingRatio = 0.86f; stiffness = 800f }
         setMinimumVisibleChange(0.0005f)
         addEndListener { _, canceled, value, _ -> if (!canceled) settled(value) }
     }
@@ -161,7 +161,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
     private val storeListener: () -> Unit = {
         notifsDirty = true
-        if (shown) scheduleNotifRender()
+        scheduleNotifRender(if (shown) 0L else 250L)
     }
 
     init {
@@ -258,9 +258,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     fun release(vy: Float) {
         val v = vy / height
         val open = when {
-            v > 0.6f -> true
-            v < -0.6f -> false
-            else -> progress > 0.4f
+            v > 0.25f -> true
+            v < -0.25f -> false
+            else -> progress > 0.22f
         }
         animateTo(if (open) 1f else 0f, v)
     }
@@ -329,9 +329,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         close()
     }
 
-    private fun scheduleNotifRender() {
+    private fun scheduleNotifRender(extraDelay: Long = 0L) {
         main.removeCallbacks(renderRunnable)
-        val wait = (dismissingUntil - SystemClock.uptimeMillis()).coerceAtLeast(0)
+        val wait = (dismissingUntil - SystemClock.uptimeMillis()).coerceAtLeast(0) + extraDelay
         main.postDelayed(renderRunnable, wait)
     }
 
@@ -830,7 +830,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private fun shadeRelease(vy: Float) {
         if (dragMode == 1) {
             val v = vy / expandDistance
-            val target = when { v > 1.2f -> 1f; v < -1.2f -> 0f; else -> if (expansion > 0.5f) 1f else 0f }
+            val target = when { v > 0.8f -> 1f; v < -0.8f -> 0f; else -> if (expansion > 0.35f) 1f else 0f }
             expandTo(target, v)
         } else release(vy)
     }

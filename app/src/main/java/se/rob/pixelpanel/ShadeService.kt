@@ -192,7 +192,7 @@ class ShadeService : AccessibilityService() {
      * shade after it leaves the strip. Double-tap opens Samsung's own panel.
      */
     private inner class StripTouch : View.OnTouchListener {
-        private val slop = ViewConfiguration.get(this@ShadeService).scaledTouchSlop
+        private val slop = ViewConfiguration.get(this@ShadeService).scaledTouchSlop / 2
         private var downY = 0f
         private var dragging = false
         private var vt: VelocityTracker? = null

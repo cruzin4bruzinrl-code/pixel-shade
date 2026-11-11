@@ -610,9 +610,18 @@ class BatteryPill(ctx: Context, private val pal: Palette) : View(ctx) {
         r.set(w + context.dp(0.8f), h * 0.32f, w + context.dp(2.5f), h * 0.68f)
         p.color = pal.onSurface.withAlpha(110); c.drawRoundRect(r, context.dp(1f), context.dp(1f), p)
         tp.textSize = h * 0.7f
-        tp.color = if (pct > 45) (if (charging) pal.onPrimary else pal.surface) else pal.onSurface
         val fm = tp.fontMetrics
-        c.drawText("$pct", w / 2f, h / 2f - (fm.ascent + fm.descent) / 2f, tp)
+        val ty = h / 2f - (fm.ascent + fm.descent) / 2f
+        val fx = w * pct / 100f
+        // Digits flip colour exactly where the fill ends, so they read on both parts.
+        c.save(); c.clipRect(0f, 0f, fx, h)
+        tp.color = if (charging) pal.onPrimary else pal.surface
+        c.drawText("$pct", w / 2f, ty, tp)
+        c.restore()
+        c.save(); c.clipRect(fx, 0f, w, h)
+        tp.color = pal.onSurface
+        c.drawText("$pct", w / 2f, ty, tp)
+        c.restore()
     }
 }
 
