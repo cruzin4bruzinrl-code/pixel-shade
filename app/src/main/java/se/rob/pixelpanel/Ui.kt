@@ -65,6 +65,10 @@ object Prefs {
     fun samsungCorner(ctx: Context) = sp(ctx).getBoolean("samsungCorner", true)
     fun setSamsungCorner(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("samsungCorner", v).apply()
 
+    /** Quick settings layout: "id:w,id:s,…" (w = wide). Null = default. */
+    fun tileLayout(ctx: Context): String? = sp(ctx).getString("tileLayout", null)
+    fun setTileLayout(ctx: Context, v: String) = sp(ctx).edit().putString("tileLayout", v).apply()
+
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
 }

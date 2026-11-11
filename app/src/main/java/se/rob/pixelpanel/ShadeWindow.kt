@@ -66,6 +66,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var tilePager: TilePager? = null
     private val tiles = HashMap<String, Tile>()
     private val expandedKeys = HashSet<String>()
+    private var tileLayout: MutableList<Pair<String, Boolean>> = TileCatalog.load(ctx)
+    private var editor: TileEditor? = null
 
     // Two-stage layout pieces (collapsed shade -> fully expanded quick settings)
     private var qsBlock: LinearLayout? = null
@@ -173,8 +175,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         root.onDragStart = { dy -> shadeDragStart(dy) }
         root.onDrag = { dy -> shadeDrag(dy) }
         root.onRelease = { vy -> shadeRelease(vy) }
-        root.onBack = { if (expansion > 0.01f) expandTo(0f) else close() }
-        root.takesDrag = { x, y, dy -> shadeTakesDrag(x, y, dy) }
+        root.onBack = { val ed = editor; if (ed != null) ed.done() else if (expansion > 0.01f) expandTo(0f) else close() }
+        root.takesDrag = { x, y, dy -> editor == null && shadeTakesDrag(x, y, dy) }
 
         torchId?.let { id ->
             try {
@@ -224,7 +226,42 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     /** Rebuild content after a theme or orientation change. */
     private var rebuildPending = false
 
+    private fun openEditor() {
+        if (editor != null) return
+        val ed = TileEditor(ctx, Palette(ctx), tileLayout.toMutableList()) { newLayout -> closeEditor(newLayout) }
+        editor = ed
+        ed.alpha = 0f
+        root.addView(ed, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        ed.animate().alpha(1f).setDuration(200).start()
+    }
+
+    private fun closeEditor(newLayout: List<Pair<String, Boolean>>) {
+        val ed = editor ?: return
+        editor = null
+        tileLayout = newLayout.toMutableList()
+        TileCatalog.save(ctx, tileLayout)
+        rebuildNow()
+        ed.animate().alpha(0f).setDuration(180).withEndAction { root.removeView(ed) }.start()
+    }
+
+    /** Rebuild while the shade is on screen (new tile layout, theme switched from a tile). */
+    private fun rebuildNow() {
+        val keepProgress = progress; val keepExp = expansion
+        val ed = editor
+        root.removeView(content)
+        content = FrameLayout(ctx)
+        tiles.clear()
+        build()
+        if (ed != null) { root.removeView(ed); root.addView(ed) }
+        setProgress(keepProgress)
+        applyExpansion(keepExp)
+        refreshTiles()
+        try { refreshBattery(); refreshBrightness() } catch (_: Throwable) { }
+        renderNotifs()
+    }
+
     fun rebuild() {
+        if (editor == null && (isOpen || shown)) { rebuildNow(); return }
         if (isOpen || shown) { rebuildPending = true; return }
         rebuildPending = false
         root.removeView(content)
@@ -273,6 +310,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     fun close() {
         if (!shown) return
         hideIme()
+        editor?.let { e -> editor = null; root.removeView(e) }
         if (expansion > 0.01f) expandTo(0f)
         meter.start(0)
         animateTo(0f, 0f)
@@ -499,7 +537,12 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             val on = try { android.nfc.NfcAdapter.getDefaultAdapter(ctx)?.isEnabled == true } catch (_: Exception) { false }
             t.secondary = if (on) "På" else "Av"; t.setOn(on)
         }
-        listOf("camera", "alarm", "cast", "screenoff").forEach { tiles[it]?.setOn(false) }
+        tiles["nightlight"]?.let { t ->
+            val on = Settings.System.getInt(ctx.contentResolver, "blue_light_filter", 0) == 1
+            t.secondary = if (on) "På" else "Av"; t.setOn(on)
+        }
+        listOf("camera", "alarm", "cast", "screenoff", "screenrecord", "qr", "quickshare", "securefolder",
+            "dex", "linkwindows", "multicontrol", "wificall", "interpreter", "auracast").forEach { tiles[it]?.setOn(false) }
     }
 
     private fun refreshBrightness() {
@@ -529,8 +572,12 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     private fun makeTiles(pal: Palette) {
-        fun t(id: String, sym: String, label: String, wide: Boolean) =
-            Tile(ctx, pal, sym, label, "", wide).also { tiles[id] = it }
+        val wideOf = tileLayout.toMap()
+        fun t(id: String, sym: String, label: String, wide: Boolean): Tile {
+            val info = TileCatalog.byId[id]
+            return Tile(ctx, pal, info?.sym ?: sym, info?.label ?: label, "", wideOf[id] ?: wide).also { tiles[id] = it }
+        }
+        fun tc(id: String) = TileCatalog.byId.getValue(id).let { t(id, it.sym, it.label, it.defaultWide) }
 
         // Page 1
         t("internet", Sym.WIFI, "Internet", true).apply {
@@ -609,6 +656,60 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         t("screenoff", Sym.POWER_SETTINGS_NEW, "Lås skärmen", false).apply {
             onTap = { close(); main.postDelayed({ ShadeService.instance?.lockScreen() }, 350) }
         }
+
+        // Extras: Pixel tiles with Samsung behind them, and Samsung-only features drawn Pixel-style
+        tc("nightlight").apply {
+            dualStyle = true
+            onToggle = { shell(this, { on -> "settings put system blue_light_filter ${if (on) 1 else 0}" }, Intent(Settings.ACTION_DISPLAY_SETTINGS)) }
+            onTap = { startSettings(Intent(Settings.ACTION_DISPLAY_SETTINGS)) }
+        }
+        tc("screenrecord").apply {
+            onTap = { samsungFeature(listOf("com.samsung.android.app.smartcapture"), null) }
+        }
+        tc("qr").apply {
+            onTap = { startSettings(Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)) }
+        }
+        tc("quickshare").apply {
+            onTap = { samsungFeature(listOf("com.samsung.android.app.sharelive"), null) }
+        }
+        tc("securefolder").apply {
+            onTap = { samsungFeature(listOf("com.samsung.knox.securefolder"), null) }
+        }
+        tc("dex").apply {
+            onTap = { samsungFeature(listOf("com.sec.android.desktopmode.uiservice"), null) }
+        }
+        tc("linkwindows").apply {
+            onTap = { samsungFeature(listOf("com.microsoft.appmanager"), null) }
+        }
+        tc("multicontrol").apply {
+            onTap = { samsungFeature(emptyList(), null) }
+        }
+        tc("wificall").apply {
+            onTap = { samsungFeature(emptyList(), Intent("android.settings.WIFI_CALLING_SETTINGS")) }
+        }
+        tc("interpreter").apply {
+            onTap = { samsungFeature(listOf("com.samsung.android.app.interpreter"), null) }
+        }
+        tc("auracast").apply {
+            onTap = { startSettings(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+        }
+    }
+
+    /**
+     * Opens a Samsung feature: its app if one of [pkgs] has a launcher entry, else [intent],
+     * else Samsung's own quick panel so the native tile is one tap away.
+     */
+    private fun samsungFeature(pkgs: List<String>, intent: Intent?) {
+        val pm = ctx.packageManager
+        pkgs.firstNotNullOfOrNull { pm.getLaunchIntentForPackage(it) }?.let { startSettings(it); return }
+        if (intent != null) {
+            try {
+                ctx.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                launchedAt = SystemClock.uptimeMillis(); close(); return
+            } catch (_: Exception) { }
+        }
+        close()
+        main.postDelayed({ ShadeService.instance?.samsungQuickPanel() }, 300)
     }
 
     // ---- Layout -----------------------------------------------------------------------
@@ -665,24 +766,28 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         makeTiles(pal)
         val gap = ctx.dpi(8f)
         val tileH = ctx.dpi(68f)
-        fun row(vararg ids: String): LinearLayout {
-            val r = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        fun row(ids: List<String>): LinearLayout {
+            val r = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; weightSum = 4f }
             ids.forEachIndexed { i, id ->
                 val t = tiles.getValue(id)
                 r.addView(t, LinearLayout.LayoutParams(0, tileH, if (t.wide) 2f else 1f).apply { if (i > 0) marginStart = gap })
             }
             return r
         }
-        fun pageOf(vararg rows: LinearLayout) = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            rows.forEachIndexed { i, r ->
-                addView(r, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, tileH).apply { if (i > 0) topMargin = gap })
+        val ids = tileLayout.map { it.first }.filter { it in tiles }
+        val rows = TileCatalog.rows(ids) { tiles.getValue(it).wide }.map { row(it) }
+        val pages = rows.chunked(3).map { pageRows ->
+            LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                pageRows.forEachIndexed { i, r ->
+                    addView(r, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, tileH).apply { if (i > 0) topMargin = gap })
+                }
             }
-        }
-        val p1r2 = row("dnd", "torch"); val p1r3 = row("airplane", "saver", "rotate", "location")
-        val page2 = pageOf(row("data", "dark"), row("hotspot", "nfc"), row("camera", "alarm", "cast", "screenoff"))
-        val pager = TilePager(ctx, pal, listOf(pageOf(row("internet", "bluetooth"), p1r2, p1r3), page2))
+        }.ifEmpty { listOf(LinearLayout(ctx)) }
+        val pager = TilePager(ctx, pal, pages)
         tilePager = pager
+        // Everything but the first row only shows once quick settings are pulled open.
+        val laterViews = rows.drop(1).filter { r -> pages.firstOrNull()?.indexOfChild(r) ?: -1 >= 0 } + pages.drop(1)
 
         // Footer: page dots on the left, settings and power on the right
         val footer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -690,6 +795,10 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             LinearLayout.LayoutParams(0, ctx.dpi(40f), 1f).apply { marginStart = ctx.dpi(6f) })
         val circleBg = { color: Int -> android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(color) } }
+        footer.addView(SymbolView(ctx, Sym.EDIT, pal.onSurface, 20f, filled = true).apply {
+            background = circleBg(pal.tileOff)
+            setOnClickListener { openEditor() }
+        }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginEnd = ctx.dpi(10f) })
         footer.addView(SymbolView(ctx, Sym.SETTINGS, pal.onSurface, 20f, filled = true).apply {
             background = circleBg(pal.tileOff)
             setOnClickListener { startSettings(Intent(Settings.ACTION_SETTINGS)) }
@@ -706,7 +815,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         })
         qsBlock = qs
         top.addView(qs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        expandOnly.clear(); expandOnly += listOf(p1r2, p1r3, page2, footer)
+        expandOnly.clear(); expandOnly += laterViews + footer
 
         // Notification panel: starts under the first tile row, slides down when QS expands
         val panel = LinearLayout(ctx).apply {

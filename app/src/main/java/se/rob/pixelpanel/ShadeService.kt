@@ -147,6 +147,8 @@ class ShadeService : AccessibilityService() {
         })
     }
 
+    fun samsungQuickPanel() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS) }
+
     fun powerMenu() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG) }
 
     fun lockScreen() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN) }
