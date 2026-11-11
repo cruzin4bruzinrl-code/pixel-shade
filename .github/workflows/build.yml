@@ -24,7 +24,19 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Build APK
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon --console=plain 2>&1 | tee build.log
+
+      - name: Publish build log on failure
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: log-${{ github.run_number }}
+          name: Build log ${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          files: build.log
 
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk Pixelpanel.apk
