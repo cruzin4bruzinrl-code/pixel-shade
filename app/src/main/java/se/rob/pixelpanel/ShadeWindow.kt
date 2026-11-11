@@ -748,19 +748,21 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         content.addView(top, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
         content.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
 
-        // Once laid out, measure the collapsed/expanded geometry and size the notification panel.
-        top.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            val newCollapsed = tileH
-            val newFull = qs.height
-            val newTop = qs.top + tileH
-            if (newCollapsed != collapsedQsH || newFull != fullQsH || newTop != panelTop) {
-                collapsedQsH = newCollapsed; fullQsH = newFull; panelTop = newTop
-                val lpPanel = panel.layoutParams as FrameLayout.LayoutParams
-                lpPanel.topMargin = panelTop
-                lpPanel.height = screenHeight() - panelTop
-                panel.post { panel.layoutParams = lpPanel; applyExpansion(expansion) }
-            }
+        // Work out the collapsed/expanded geometry up front by measuring the top block,
+        // so the notification panel starts right under the first tile row from the first frame.
+        val sw = try { wm.currentWindowMetrics.bounds.width() } catch (_: Exception) { ctx.resources.displayMetrics.widthPixels }
+        top.measure(
+            View.MeasureSpec.makeMeasureSpec(sw, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        collapsedQsH = tileH
+        fullQsH = qs.measuredHeight
+        panelTop = top.paddingTop + header.measuredHeight + ctx.dpi(18f) + ctx.dpi(52f) + ctx.dpi(14f) + tileH
+        (panel.layoutParams as FrameLayout.LayoutParams).apply {
+            topMargin = panelTop
+            height = screenHeight() - panelTop
         }
+        panel.layoutParams = panel.layoutParams
 
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
         content.translationY = -10000f
@@ -780,8 +782,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val extra = expandDistance * e
         clip.set(0, 0, qs.width.coerceAtLeast(1), (collapsedQsH + extra).toInt().coerceAtLeast(1))
         qs.clipBounds = clip
-        notifPanel?.translationY = extra
-        notifPanel?.alpha = 1f - (c * 1.4f).coerceAtMost(1f)
+        notifPanel?.let {
+            it.translationY = extra
+            it.alpha = 1f - (c * 1.4f).coerceAtMost(1f)
+            it.visibility = if (c > 0.7f) View.INVISIBLE else View.VISIBLE
+        }
         val a = ((c - 0.15f) / 0.85f).coerceIn(0f, 1f)
         expandOnly.forEach { it.alpha = a }
         tilePager?.swipeEnabled = c > 0.98f
@@ -822,7 +827,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         if (dragMode == 1) {
             var e = expStart + dy / expandDistance
             if (e > 1f) e = 1f + (e - 1f) * 0.25f
-            if (e < 0f) e *= 0.25f
+            if (e < 0f) e = 0f
             applyExpansion(e)
         } else dragTo(kotlin.math.min(0f, dy))
     }
