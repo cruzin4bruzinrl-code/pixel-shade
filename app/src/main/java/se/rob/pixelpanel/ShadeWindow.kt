@@ -433,7 +433,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             t.secondary = if (NotifStore.service == null) "Kräver notisåtkomst" else if (on) "På" else "Av"; t.setOn(on)
         }
         tiles["torch"]?.let { t ->
-            t.symbol = if (torchOn) Sym.FLASHLIGHT_ON else Sym.FLASHLIGHT_OFF
+            t.symbol = Sym.FLASHLIGHT_ON
             t.secondary = if (torchOn) "På" else "Av"; t.setOn(torchOn)
         }
         tiles["airplane"]?.setOn(Settings.Global.getInt(ctx.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1)
@@ -444,7 +444,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }
         tiles["location"]?.let { t ->
             val on = ctx.getSystemService(LocationManager::class.java).isLocationEnabled
-            t.symbol = if (on) Sym.LOCATION_ON else Sym.LOCATION_OFF; t.setOn(on)
+            t.symbol = Sym.LOCATION_ON; t.setOn(on)
         }
     }
 
@@ -482,7 +482,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             }
             onLong = { startSettings(Intent("android.settings.ZEN_MODE_SETTINGS")) }
         }
-        t("torch", Sym.FLASHLIGHT_OFF, "Ficklampa", true).apply {
+        t("torch", Sym.FLASHLIGHT_ON, "Ficklampa", true).apply {
             onTap = { torchId?.let { try { cameraManager.setTorchMode(it, !torchOn) } catch (_: Exception) { } } }
         }
         t("airplane", Sym.AIRPLANEMODE_ACTIVE, "Flygplansläge", false).apply {
@@ -517,7 +517,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val pad = ctx.dpi(16f)
         content.orientation = LinearLayout.VERTICAL
         content.setPadding(pad, ctx.statusBarHeight() + ctx.dpi(8f), pad, navBarHeight() + ctx.dpi(10f))
-        content.clipChildren = false
+        // Must stay true: clipChildren=false here would stop the notification ScrollView
+        // from clipping its cards, so they bled under the tiles and the bottom pills.
+        content.clipChildren = true
         content.clipToPadding = false
 
         // Header: clock + date, battery on the right
