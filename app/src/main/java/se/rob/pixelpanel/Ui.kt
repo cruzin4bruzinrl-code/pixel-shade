@@ -30,6 +30,8 @@ class Palette(private val ctx: Context) {
     val onPrimary = if (night) c(android.R.color.system_accent1_800) else c(android.R.color.system_accent1_0)
     val primaryContainer = if (night) c(android.R.color.system_accent1_700) else c(android.R.color.system_accent1_100)
     val surface = if (night) c(android.R.color.system_neutral1_900) else c(android.R.color.system_neutral1_50)
+    /** Notification cards and pills: near-white in light mode, raised in dark mode. */
+    val card = if (night) c(android.R.color.system_neutral1_800) else c(android.R.color.system_neutral1_10)
     val surfaceContainer = if (night) c(android.R.color.system_neutral1_800) else c(android.R.color.system_neutral1_100)
     val surfaceContainerHigh = if (night) c(android.R.color.system_neutral2_800) else c(android.R.color.system_neutral2_100)
     val onSurface = if (night) c(android.R.color.system_neutral1_100) else c(android.R.color.system_neutral1_900)

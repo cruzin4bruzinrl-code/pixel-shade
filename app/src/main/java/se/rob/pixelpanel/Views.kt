@@ -180,7 +180,7 @@ class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
 /** One fake notification card. Corners are set by the stack it lives in. */
 class NotifCard(ctx: Context, pal: Palette, app: String, time: String, title: String, text: String, appColor: Int) :
     LinearLayout(ctx) {
-    val bg = GradientDrawable().apply { setColor(pal.surface) }
+    val bg = GradientDrawable().apply { setColor(pal.card) }
 
     init {
         orientation = HORIZONTAL
@@ -439,7 +439,7 @@ fun pill(ctx: Context, pal: Palette, text: String, onClick: () -> Unit): TextVie
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         gravity = Gravity.CENTER
         setPadding(ctx.dpi(18f), ctx.dpi(10f), ctx.dpi(18f), ctx.dpi(10f))
-        background = GradientDrawable().apply { setColor(pal.surface); cornerRadius = ctx.dp(100f) }
+        background = GradientDrawable().apply { setColor(pal.card); cornerRadius = ctx.dp(100f) }
         setOnClickListener { onClick() }
     }
 
