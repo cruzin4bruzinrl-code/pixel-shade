@@ -26,7 +26,8 @@ fun Context.isNight(): Boolean =
  */
 class Palette(private val ctx: Context) {
     val night = ctx.isNight()
-    private val seed = Prefs.seedColor(ctx)
+    // 0 = take the seed from the wallpaper ourselves (like Pixel), 1 = Samsung's own palette, else a basic colour.
+    private val seed = Prefs.seedColor(ctx).let { if (it == 0) WallSeed.get(ctx) else it }.let { if (it == 1) 0 else it }
 
     // Pixel's "basic colours": a fixed seed run through the same tonal-spot recipe Monet uses.
     private val palettes: Array<TonalPalette>? = if (seed == 0) null else {
@@ -113,4 +114,17 @@ object Prefs {
 
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
+}
+
+
+/** The wallpaper's main colour, cached until the wallpaper changes. Returns 1 (= system palette) if unknown. */
+object WallSeed {
+    @Volatile var cached: Int? = null
+    fun get(ctx: Context): Int = cached ?: run {
+        val c = try {
+            android.app.WallpaperManager.getInstance(ctx)
+                .getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb()
+        } catch (_: Throwable) { null }
+        (c ?: 1).also { cached = it }
+    }
 }

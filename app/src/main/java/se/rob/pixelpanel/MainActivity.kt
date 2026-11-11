@@ -172,11 +172,11 @@ class MainActivity : Activity() {
 
         // Colours, like Pixel's Wallpaper & style → Colours
         card("Färger") {
-            it.addView(text("Som på Pixel: färger från bakgrundsbilden eller en grundfärg.", 13f, pal.onSurfaceVariant).apply {
+            it.addView(text("Som på Pixel: färger från bakgrundsbilden, Samsungs färgpalett eller en grundfärg.", 13f, pal.onSurfaceVariant).apply {
                 setPadding(0, 0, 0, dpi(12f))
             })
             val presets = listOf(
-                0 to "Bakgrund", 0xFF1A73E8.toInt() to "Blå", 0xFF00897B.toInt() to "Turkos", 0xFF34A853.toInt() to "Grön",
+                0 to "Bakgrund", 1 to "Samsung", 0xFF1A73E8.toInt() to "Blå", 0xFF00897B.toInt() to "Turkos", 0xFF34A853.toInt() to "Grön",
                 0xFFFBBC04.toInt() to "Gul", 0xFFFF6D00.toInt() to "Orange", 0xFFEA4335.toInt() to "Röd",
                 0xFFE91E63.toInt() to "Rosa", 0xFF8E24AA.toInt() to "Lila", 0xFF757575.toInt() to "Grå",
             )
@@ -185,7 +185,11 @@ class MainActivity : Activity() {
             presets.forEach { (color, name) ->
                 val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
                 val swatch = View(this).apply {
-                    val fill = if (color == 0) getColor(android.R.color.system_accent1_400) else color
+                    val fill = when (color) {
+                        0 -> WallSeed.get(this@MainActivity).let { w -> if (w == 1) getColor(android.R.color.system_accent1_400) else w }
+                        1 -> getColor(android.R.color.system_accent1_400)
+                        else -> color
+                    }
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL; setColor(fill)
                         if (color == current) setStroke(dpi(3f), pal.onSurface)

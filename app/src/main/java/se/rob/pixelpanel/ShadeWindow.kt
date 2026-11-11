@@ -188,6 +188,15 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             } catch (_: Exception) { }
         }
         NotifStore.addListener(storeListener)
+        // New wallpaper -> new colours, like Pixel.
+        try {
+            android.app.WallpaperManager.getInstance(ctx).addOnColorsChangedListener({ _, which ->
+                if (which and android.app.WallpaperManager.FLAG_SYSTEM != 0) {
+                    WallSeed.cached = null
+                    main.post { rebuild() }
+                }
+            }, main)
+        } catch (_: Throwable) { }
         NotifStore.addDndListener { if (shown) refreshTiles() }
     }
 
@@ -926,6 +935,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     fun expandTo(target: Float, velocity: Float = 0f) {
+        if (target < 0.5f) tilePager?.toFirstPage()
         expSpring.setStartVelocity(velocity)
         expSpring.animateToFinalPosition(target)
     }
@@ -949,6 +959,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             dragMode = 1
             expSpring.cancel()
             expStart = expansion
+            if (dy < 0) tilePager?.toFirstPage()
         } else {
             dragMode = 0
             beginDrag(0)

@@ -677,6 +677,15 @@ class TilePager(ctx: Context, private val pal: Palette, private val pages: List<
 
     fun reset() { page = 0; place(0f); updateDots() }
 
+    /** Slide back to the first page (when quick settings collapse, the first row must be page 1's). */
+    fun toFirstPage() {
+        if (page == 0) return
+        page = 0
+        val w = width.toFloat()
+        pages.forEachIndexed { i, v -> v.animate().translationX(i * w).setDuration(220).setInterpolator(EMPHASIZED).start() }
+        updateDots()
+    }
+
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

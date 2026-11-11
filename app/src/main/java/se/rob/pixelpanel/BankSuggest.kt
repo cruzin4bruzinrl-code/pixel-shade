@@ -36,8 +36,19 @@ object BankSuggest {
         }
     }
 
+    /** Only apps you installed yourself; never Samsung/Google/system components. */
+    private fun userApp(ctx: Context, pkg: String): Boolean {
+        if (pkg.startsWith("com.samsung.") || pkg.startsWith("com.sec.") || pkg.startsWith("com.android.") ||
+            pkg.startsWith("com.google.android.") || pkg == "android") return false
+        return try {
+            val ai = ctx.packageManager.getApplicationInfo(pkg, 0)
+            ai.flags and (android.content.pm.ApplicationInfo.FLAG_SYSTEM or android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0 &&
+                ctx.packageManager.getLaunchIntentForPackage(pkg) != null
+        } catch (_: Exception) { false }
+    }
+
     fun onQuickExit(ctx: Context, pkg: String) {
-        if (pkg in Prefs.bankApps(ctx) || pkg in Prefs.suggested(ctx)) return
+        if (pkg in Prefs.bankApps(ctx) || pkg in Prefs.suggested(ctx) || !userApp(ctx, pkg)) return
         Prefs.addSuggested(ctx, pkg)
         val name = label(ctx, pkg)
         post(ctx, pkg, "Stängdes $name direkt?", "Bankappar stänger sig när Pixelpanel är på. Lägg till $name i bankläge.", withAction = true)
