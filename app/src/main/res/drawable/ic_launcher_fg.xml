@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Two wide tiles + slider: a tiny quick settings panel -->
+    <path android:fillColor="#FFD3E3FD"
+        android:pathData="M36,34h14a6,6 0 0 1 6,6v4a6,6 0 0 1 -6,6h-14a6,6 0 0 1 -6,-6v-4a6,6 0 0 1 6,-6z" />
+    <path android:fillColor="#FF8AB4F8"
+        android:pathData="M60,34h12a6,6 0 0 1 6,6v4a6,6 0 0 1 -6,6h-12a6,6 0 0 1 -6,-6v-4a6,6 0 0 1 6,-6z" />
+    <path android:fillColor="#FF8AB4F8"
+        android:pathData="M37,58h34a7,7 0 0 1 0,14h-34a7,7 0 0 1 0,-14z" />
+    <path android:fillColor="#FFD3E3FD"
+        android:pathData="M37,58h14v14h-14a7,7 0 0 1 0,-14z" />
+</vector>
