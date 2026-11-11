@@ -193,6 +193,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             android.app.WallpaperManager.getInstance(ctx).addOnColorsChangedListener({ _, which ->
                 if (which and android.app.WallpaperManager.FLAG_SYSTEM != 0) {
                     WallSeed.cached = null
+                    Prefs.setWallSeed(ctx, 0)
                     main.post { rebuild() }
                 }
             }, main)
@@ -267,6 +268,12 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         refreshTiles()
         try { refreshBattery(); refreshBrightness() } catch (_: Throwable) { }
         renderNotifs()
+    }
+
+    /** New wallpaper colours: apply now if hidden, otherwise as soon as the shade closes. */
+    fun recolor() {
+        if (Prefs.seedColor(ctx) != 0) return
+        if (shown || isOpen) rebuildPending = true else rebuild()
     }
 
     fun rebuild() {

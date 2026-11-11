@@ -107,6 +107,8 @@ object Prefs {
     /** 0 = follow the wallpaper (system Monet); otherwise a seed colour like Pixel's basic colours. */
     fun seedColor(ctx: Context) = sp(ctx).getInt("seedColor", 0)
     fun setSeedColor(ctx: Context, v: Int) = sp(ctx).edit().putInt("seedColor", v).apply()
+    fun wallSeed(ctx: Context) = sp(ctx).getInt("wallSeed", 0)
+    fun setWallSeed(ctx: Context, v: Int) = sp(ctx).edit().putInt("wallSeed", v).apply()
     fun hideIcon(ctx: Context) = sp(ctx).getBoolean("hideIcon", false)
     fun setHideIcon(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hideIcon", v).apply()
     fun suggested(ctx: Context): Set<String> = sp(ctx).getStringSet("bankSuggested", null) ?: emptySet()
@@ -117,14 +119,47 @@ object Prefs {
 }
 
 
-/** The wallpaper's main colour, cached until the wallpaper changes. Returns 1 (= system palette) if unknown. */
+/**
+ * The wallpaper's main colour. Learned from home-screen screenshots (Samsung keeps wallpaper
+ * colours from other apps), else the system's WallpaperColors, else 1 (= system palette).
+ */
 object WallSeed {
     @Volatile var cached: Int? = null
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
     fun get(ctx: Context): Int = cached ?: run {
-        val c = try {
+        val learned = Prefs.wallSeed(ctx)
+        val c = if (learned != 0) learned else try {
             android.app.WallpaperManager.getInstance(ctx)
                 .getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb()
         } catch (_: Throwable) { null }
         (c ?: 1).also { cached = it }
+    }
+
+    /** Picks a seed the way Monet does (quantize + score) from a screenshot of the home screen. */
+    fun learn(ctx: Context, shot: android.graphics.Bitmap, changed: () -> Unit) {
+        worker.execute {
+            try {
+                val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false) ?: return@execute
+                val w = 112; val h = (soft.height * w / soft.width).coerceAtLeast(1)
+                val small = android.graphics.Bitmap.createScaledBitmap(soft, w, h, true)
+                // Skip the status bar strip and the dock area, which are mostly icons.
+                val top = (h * 0.06f).toInt(); val bottom = (h * 0.80f).toInt()
+                val px = IntArray(w * (bottom - top))
+                small.getPixels(px, 0, w, 0, top, w, bottom - top)
+                val counts = com.google.android.material.color.utilities.QuantizerCelebi.quantize(px, 128)
+                val seed = com.google.android.material.color.utilities.Score.score(counts).firstOrNull() ?: return@execute
+                val old = Prefs.wallSeed(ctx)
+                val oldH = if (old == 0) null else Hct.fromInt(old)
+                val newH = Hct.fromInt(seed)
+                val moved = oldH == null || kotlin.math.abs(oldH.hue - newH.hue) > 12 || kotlin.math.abs(oldH.chroma - newH.chroma) > 12
+                if (moved) {
+                    Prefs.setWallSeed(ctx, seed)
+                    cached = seed
+                    main.post { changed() }
+                }
+            } catch (_: Throwable) { }
+        }
     }
 }

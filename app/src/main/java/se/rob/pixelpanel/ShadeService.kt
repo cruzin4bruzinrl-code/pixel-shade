@@ -42,6 +42,7 @@ class ShadeService : AccessibilityService() {
 
     // Quick-exit detection for bank mode suggestions
     private var lastPkg: String? = null
+    private val quickExits = HashMap<String, Int>()
     private var lastPkgAt = 0L
     private val homePkg by lazy {
         packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
@@ -152,16 +153,25 @@ class ShadeService : AccessibilityService() {
      * Grabs what is on screen right now so the shade can blur it when Samsung's
      * cross-window blur is off. Calls [then] when done (or failed).
      */
+    private var lastColorCheck = 0L
+
     fun captureBackdrop(then: (() -> Unit)? = null) {
-        if (shade.blurSupported) { then?.invoke(); return }
         val now = android.os.SystemClock.uptimeMillis()
+        // On the home screen the screenshot shows the wallpaper: learn its colours from it (Samsung
+        // doesn't hand wallpaper colours to other apps), at most every 20 s.
+        val learnColours = lastPkg != null && lastPkg == homePkg && now - lastColorCheck > 20_000
+        if (shade.blurSupported && !learnColours) { then?.invoke(); return }
         if (now - lastShot < 400) { then?.invoke(); return } // system rate limit
         lastShot = now
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 val bmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                 result.hardwareBuffer.close()
-                shade.setBackdrop(bmp)
+                if (!shade.blurSupported) shade.setBackdrop(bmp)
+                if (learnColours && bmp != null) {
+                    lastColorCheck = now
+                    WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
+                }
                 then?.invoke()
             }
             override fun onFailure(errorCode: Int) {
@@ -205,7 +215,9 @@ class ShadeService : AccessibilityService() {
         val prev = lastPkg
         if (pkg == homePkg && prev != null && prev != homePkg && prev != packageName &&
             prev != "com.android.systemui" && now - lastPkgAt < 2500 && !BankMode.isBank(this, prev)) {
-            BankSuggest.onQuickExit(this, prev)
+            val n = (quickExits[prev] ?: 0) + 1
+            quickExits[prev] = n
+            if (n >= 2) BankSuggest.onQuickExit(this, prev)
         }
         if (pkg != "com.android.systemui" && !pkg.contains("inputmethod") && !pkg.contains("honeyboard")) {
             if (pkg != prev) { lastPkg = pkg; lastPkgAt = now }
