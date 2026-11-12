@@ -174,7 +174,7 @@ class ShadeService : AccessibilityService() {
         val now = android.os.SystemClock.uptimeMillis()
         // On the home screen the screenshot shows the wallpaper: learn its colours from it (Samsung
         // doesn't hand wallpaper colours to other apps), at most every 20 s.
-        val learnColours = lastPkg != null && lastPkg == homePkg && now - lastColorCheck > 20_000
+        val learnColours = lastPkg != null && lastPkg == homePkg && now - lastColorCheck > 8_000
         if (shade.blurSupported && !learnColours) { then?.invoke(); return }
         if (now - lastShot < 400) { then?.invoke(); return } // system rate limit
         lastShot = now
@@ -240,9 +240,9 @@ class ShadeService : AccessibilityService() {
         // Back on the home screen with unknown (or stale) wallpaper colours: learn them quietly now,
         // so the shade already has the right colours the next time it is pulled down.
         if (pkg == homePkg && Prefs.seedColor(this) == 0 && ::shade.isInitialized && !shade.isOpen &&
-            (Prefs.wallSeed(this) == 0 || now - lastColorCheck > 120_000)) {
+            (Prefs.wallSeed(this) == 0 || now - lastColorCheck > 8_000)) {
             mainHandler.removeCallbacks(learnFromHome)
-            mainHandler.postDelayed(learnFromHome, 700)
+            mainHandler.postDelayed(learnFromHome, 450)
         }
         // Bank mode: step aside before the bank app's security check notices us.
         if (BankMode.isBank(this, pkg) && BankMode.canSwitch(this)) {

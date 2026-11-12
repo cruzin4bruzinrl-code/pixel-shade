@@ -175,34 +175,45 @@ class MainActivity : Activity() {
             it.addView(text("Som på Pixel: färger från bakgrundsbilden, Samsungs färgpalett eller en grundfärg.", 13f, pal.onSurfaceVariant).apply {
                 setPadding(0, 0, 0, dpi(12f))
             })
-            val presets = listOf(
-                0 to "Bakgrund", 1 to "Samsung", 0xFF1A73E8.toInt() to "Blå", 0xFF00897B.toInt() to "Turkos", 0xFF34A853.toInt() to "Grön",
-                0xFFFBBC04.toInt() to "Gul", 0xFFFF6D00.toInt() to "Orange", 0xFFEA4335.toInt() to "Röd",
-                0xFFE91E63.toInt() to "Rosa", 0xFF8E24AA.toInt() to "Lila", 0xFF757575.toInt() to "Grå",
-            )
+            val seeds = Prefs.wallSeeds(this)
+            val choice = Prefs.wallChoice(this)
             val current = Prefs.seedColor(this)
+            // Options: one swatch per wallpaper colour (Pixel's "Wallpaper colours"), Samsung's palette, basic colours.
+            val options = ArrayList<Triple<Int, Int, String>>() // (seedColor pref, wallChoice, label) ; swatch colour resolved below
+            if (seeds.isEmpty()) options += Triple(0, 0, "Bakgrund")
+            else seeds.forEachIndexed { i, _ -> options += Triple(0, i, if (i == 0) "Bakgrund" else "Bakgrund ${i + 1}") }
+            options += Triple(1, 0, "Samsung")
+            listOf(0xFF1A73E8.toInt() to "Blå", 0xFF00897B.toInt() to "Turkos", 0xFF34A853.toInt() to "Grön",
+                0xFFFBBC04.toInt() to "Gul", 0xFFFF6D00.toInt() to "Orange", 0xFFEA4335.toInt() to "Röd",
+                0xFFE91E63.toInt() to "Rosa", 0xFF8E24AA.toInt() to "Lila", 0xFF757575.toInt() to "Grå")
+                .forEach { (c, n) -> options += Triple(c, 0, n) }
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            presets.forEach { (color, name) ->
+            options.forEach { (color, idx, name) ->
                 val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+                val selected = color == current && (color != 0 || seeds.isEmpty() || idx == choice)
                 val swatch = View(this).apply {
                     val fill = when (color) {
-                        0 -> WallSeed.get(this@MainActivity).let { w -> if (w == 1) getColor(android.R.color.system_accent1_400) else w }
+                        0 -> seeds.getOrNull(idx) ?: WallSeed.get(this@MainActivity).let { w -> if (w == 1) getColor(android.R.color.system_accent1_400) else w }
                         1 -> getColor(android.R.color.system_accent1_400)
                         else -> color
                     }
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL; setColor(fill)
-                        if (color == current) setStroke(dpi(3f), pal.onSurface)
+                        if (selected) setStroke(dpi(3f), pal.onSurface)
                     }
                     setOnClickListener {
                         Prefs.setSeedColor(this@MainActivity, color)
+                        if (color == 0) {
+                            Prefs.setWallChoice(this@MainActivity, idx)
+                            seeds.getOrNull(idx)?.let { s0 -> Prefs.setWallSeed(this@MainActivity, s0); WallSeed.cached = s0 }
+                        }
                         ShadeService.instance?.rebuildShade()
                         recreate()
                     }
                 }
                 col.addView(swatch, LinearLayout.LayoutParams(dpi(44f), dpi(44f)))
                 col.addView(text(name, 11f, pal.onSurfaceVariant).apply { setPadding(0, dpi(4f), 0, 0) })
-                row.addView(col, LinearLayout.LayoutParams(dpi(58f), ViewGroup.LayoutParams.WRAP_CONTENT))
+                row.addView(col, LinearLayout.LayoutParams(dpi(64f), ViewGroup.LayoutParams.WRAP_CONTENT))
             }
             it.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(row) })
         }

@@ -108,6 +108,10 @@ object Prefs {
     fun seedColor(ctx: Context) = sp(ctx).getInt("seedColor", 0)
     fun setSeedColor(ctx: Context, v: Int) = sp(ctx).edit().putInt("seedColor", v).apply()
     fun wallSeed(ctx: Context) = sp(ctx).getInt("wallSeed", 0)
+    fun wallSeeds(ctx: Context): List<Int> = sp(ctx).getString("wallSeeds", "")!!.split(',').mapNotNull { it.toIntOrNull() }
+    fun setWallSeeds(ctx: Context, v: List<Int>) = sp(ctx).edit().putString("wallSeeds", v.joinToString(",")).apply()
+    fun wallChoice(ctx: Context) = sp(ctx).getInt("wallChoice", 0)
+    fun setWallChoice(ctx: Context, v: Int) = sp(ctx).edit().putInt("wallChoice", v).apply()
     fun setWallSeed(ctx: Context, v: Int) = sp(ctx).edit().putInt("wallSeed", v).apply()
     fun hideIcon(ctx: Context) = sp(ctx).getBoolean("hideIcon", false)
     fun setHideIcon(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hideIcon", v).apply()
@@ -149,11 +153,16 @@ object WallSeed {
                 val px = IntArray(w * (bottom - top))
                 small.getPixels(px, 0, w, 0, top, w, bottom - top)
                 val counts = com.google.android.material.color.utilities.QuantizerCelebi.quantize(px, 128)
-                val seed = com.google.android.material.color.utilities.Score.score(counts).firstOrNull() ?: return@execute
+                // Up to four wallpaper colours, like Pixel's "Wallpaper colours" options.
+                val seeds = com.google.android.material.color.utilities.Score.score(counts, 4)
+                if (seeds.isEmpty()) return@execute
+                Prefs.setWallSeeds(ctx, seeds)
+                val seed = seeds[Prefs.wallChoice(ctx).coerceIn(0, seeds.size - 1)]
                 val old = Prefs.wallSeed(ctx)
                 val oldH = if (old == 0) null else Hct.fromInt(old)
                 val newH = Hct.fromInt(seed)
-                val moved = oldH == null || kotlin.math.abs(oldH.hue - newH.hue) > 12 || kotlin.math.abs(oldH.chroma - newH.chroma) > 12
+                val dh = oldH?.let { kotlin.math.abs(it.hue - newH.hue).let { d -> kotlin.math.min(d, 360 - d) } } ?: 999.0
+                val moved = oldH == null || dh > 8 || kotlin.math.abs(oldH.chroma - newH.chroma) > 8
                 if (moved) {
                     Prefs.setWallSeed(ctx, seed)
                     cached = seed
