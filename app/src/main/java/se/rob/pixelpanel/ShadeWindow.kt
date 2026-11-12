@@ -82,6 +82,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var hdrDate: TextView? = null
     private var hdrStatus: View? = null
     private var qqsRows = 2
+    private var mediaGap: View? = null
     private var mediaH = 0            // height of the media player above the tiles (0 = none)
     private var geoTileH = 0
     private var qsMedia: FrameLayout? = null
@@ -452,8 +453,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         geo.mediaC = geo.qqsTop + qqsH + ctx.dpi(16f)
         geo.hdrBottom = sb + ctx.dpi(120f)            // ShadeHeader.Dimensions.ExpandedHeight
         geo.sliderE = geo.hdrBottom + ctx.dpi(8f)
-        geo.mediaE = geo.sliderE + ctx.dpi(52f) + ctx.dpi(16f)
-        geo.qsE = geo.mediaE + (if (media > 0) media + ctx.dpi(12f) else 0)
+        geo.qsE = geo.sliderE + ctx.dpi(52f) + ctx.dpi(16f)
+        geo.mediaE = geo.qsE + (tilePager?.measuredHeight ?: 0) + ctx.dpi(12f)
         collapsedQsH = qqsH
         fullQsH = qs.measuredHeight
         // qqs_layout_padding_bottom 24 dp below QQS/media; the stack adds its own 16 dp section gap
@@ -477,7 +478,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
                 holder.visibility = View.VISIBLE
             } else holder.visibility = View.GONE
             val newMediaH = if (media != null) ctx.dpi(176f) + ctx.dpi(12f) else 0
-            if (newMediaH != mediaH) { mediaH = newMediaH; relayoutGeometry() }
+            if (newMediaH != mediaH) {
+                mediaH = newMediaH
+                mediaGap?.let { g -> g.layoutParams = g.layoutParams.apply { height = newMediaH } }
+                relayoutGeometry()
+            }
         }
         // Apps with a foreground service, like Pixel's Task Manager chip
         activeApps = NotifStore.entries
@@ -964,7 +969,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }
         val ids = tileLayout.map { it.first }.filter { it in tiles }
         val rows = TileCatalog.rows(ids) { tiles.getValue(it).wide }.map { row(it) }
-        val pages = rows.chunked(4).map { pageRows ->
+        // Rows per page: whatever fits between brightness and the footer with room for media below the tiles.
+        val availDp = screenHeight() / ctx.resources.displayMetrics.density - navBarHeight() / ctx.resources.displayMetrics.density -
+            ctx.statusBarHeight() / ctx.resources.displayMetrics.density - (120 + 8 + 52 + 16) - (176 + 12) - (12 + 6 + 10 + 40) - 16
+        val rpp = ((availDp + 8) / (72 + 8)).toInt().coerceIn(2, 4)
+        val pages = rows.chunked(rpp).map { pageRows ->
             LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 pageRows.forEachIndexed { i, r ->
@@ -974,7 +983,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }.ifEmpty { listOf(LinearLayout(ctx)) }
         val pager = TilePager(ctx, pal, pages)
         tilePager = pager
-        val laterViews = rows.take(4).drop(2) + pages.drop(1)
+        val laterViews = rows.take(rpp).drop(2) + pages.drop(1)
         qqsRows = rows.size.coerceAtMost(2)
 
         // Footer: active-apps chip on the left; edit, settings and power on the right
@@ -1015,6 +1024,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
         val qs = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         qs.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val mg = View(ctx)
+        mediaGap = mg
+        qs.addView(mg, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
         qs.addView(pager.dots.apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(6f)).apply {
             topMargin = ctx.dpi(12f)
         })
@@ -1131,8 +1143,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }
         qsMedia?.translationY = lerp(geo.mediaC.toFloat(), geo.mediaE.toFloat(), c)
         qs.translationY = lerp(geo.qqsTop.toFloat(), geo.qsE.toFloat(), c)
-        clip.set(0, 0, qs.width.coerceAtLeast(1), lerp(collapsedQsH.toFloat(), fullQsH.toFloat(), c).toInt().coerceAtLeast(1))
-        qs.clipBounds = clip
+        // Only the tile grid is clipped (QQS rows -> full page); media sits below it and never overlaps.
+        tilePager?.let { pg ->
+            clip.set(0, 0, pg.width.coerceAtLeast(1), lerp(collapsedQsH.toFloat(), pg.height.toFloat(), c).toInt().coerceAtLeast(1))
+            pg.clipBounds = clip
+        }
         notifPanel?.let {
             it.translationY = geo.panelTravel * e
             it.alpha = 1f - (c * 1.4f).coerceAtMost(1f)
