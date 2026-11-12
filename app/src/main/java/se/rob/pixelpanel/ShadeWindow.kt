@@ -473,7 +473,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val sheet = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(16f))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.card); cornerRadius = ctx.dp(28f) }
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.surfaceContainerHigh); cornerRadius = ctx.dp(28f) }
             isClickable = true
         }
         sheet.addView(ctx.label("Aktiva appar", 20f, pal.onSurface))
@@ -683,7 +683,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val sheet = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(16f))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.card); cornerRadius = ctx.dp(28f) }
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.surfaceContainerHigh); cornerRadius = ctx.dp(28f) }
             isClickable = true
         }
         sheet.addView(ctx.label("Ljusstyrka", 20f, pal.onSurface))

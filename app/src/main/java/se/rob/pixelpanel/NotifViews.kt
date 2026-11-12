@@ -138,7 +138,7 @@ class AppAvatar(ctx: Context, pal: Palette, main: Drawable?, badge: Drawable?, s
             val b = ctx.dpi(sizeDp * 0.42f)
             addView(ImageView(ctx).apply {
                 setImageDrawable(badge)
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(pal.card) }
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(pal.surfaceContainerHigh) }
                 setPadding(ctx.dpi(1.5f), ctx.dpi(1.5f), ctx.dpi(1.5f), ctx.dpi(1.5f))
                 clipToOutline = true; outlineProvider = ViewOutlineProvider.BACKGROUND
             }, LayoutParams(b, b, Gravity.BOTTOM or Gravity.END).apply {
