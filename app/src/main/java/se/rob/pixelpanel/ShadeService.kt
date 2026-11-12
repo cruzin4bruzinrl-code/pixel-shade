@@ -164,25 +164,33 @@ class ShadeService : AccessibilityService() {
             override fun onSuccess(result: ScreenshotResult) {
                 val bmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                 result.hardwareBuffer.close()
-                if (bmp != null) WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
+                if (bmp != null) {
+                    // A fresh shot of the home screen doubles as the frosted-glass backdrop.
+                    if (!shade.blurSupported && !shade.isOpen) shade.setBackdrop(bmp)
+                    WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
+                }
             }
             override fun onFailure(errorCode: Int) {}
         })
     }
 
-    fun captureBackdrop(then: (() -> Unit)? = null) {
+    fun captureBackdrop(then: (() -> Unit)? = null) = shoot(then, retry = true)
+
+    private fun shoot(then: (() -> Unit)?, retry: Boolean) {
         val now = android.os.SystemClock.uptimeMillis()
         // On the home screen the screenshot shows the wallpaper: learn its colours from it (Samsung
-        // doesn't hand wallpaper colours to other apps), at most every 20 s.
+        // doesn't hand wallpaper colours to other apps).
         val learnColours = lastPkg != null && lastPkg == homePkg && now - lastColorCheck > 8_000
         if (shade.blurSupported && !learnColours) { then?.invoke(); return }
-        if (now - lastShot < 400) { then?.invoke(); return } // system rate limit
+        // Screenshots are rate limited: wait for the window instead of going without a backdrop.
+        val wait = 400 - (now - lastShot)
+        if (wait > 0) { mainHandler.postDelayed({ shoot(then, retry) }, wait); return }
         lastShot = now
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 val bmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
                 result.hardwareBuffer.close()
-                if (!shade.blurSupported) shade.setBackdrop(bmp)
+                if (!shade.blurSupported && bmp != null) shade.setBackdrop(bmp)
                 if (learnColours && bmp != null) {
                     lastColorCheck = now
                     WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
@@ -190,8 +198,11 @@ class ShadeService : AccessibilityService() {
                 then?.invoke()
             }
             override fun onFailure(errorCode: Int) {
-                shade.setBackdrop(null)
-                then?.invoke()
+                // Too soon after the last shot: try once more. Otherwise (e.g. a secure app) keep the
+                // last frosted backdrop rather than falling back to a flat white panel.
+                if (retry && errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
+                    mainHandler.postDelayed({ shoot(then, retry = false) }, 400)
+                } else then?.invoke()
             }
         })
     }
