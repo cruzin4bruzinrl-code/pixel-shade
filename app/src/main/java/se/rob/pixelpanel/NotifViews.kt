@@ -149,11 +149,36 @@ class AppAvatar(ctx: Context, pal: Palette, main: Drawable?, badge: Drawable?, s
     }
 }
 
-private fun chevron(ctx: Context, pal: Palette, expanded: Boolean, onClick: () -> Unit) =
-    SymbolView(ctx, if (expanded) Sym.EXPAND_LESS else Sym.EXPAND_MORE, pal.onSurface, 20f).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(pal.surfaceContainer) }
+/** notification_2025_expand_button: a 20 dp-high pill (min 28 dp wide) with an optional count and a chevron. */
+class ExpandPill(ctx: Context, private val pal: Palette, count: Int, expanded: Boolean, onClick: () -> Unit) : LinearLayout(ctx) {
+    private val chevron = SymbolView(ctx, if (expanded) Sym.EXPAND_LESS else Sym.EXPAND_MORE, pal.onSurface, 16f)
+    init {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER
+        minimumHeight = ctx.dpi(20f); minimumWidth = ctx.dpi(28f)
+        setPadding(ctx.dpi(6f), ctx.dpi(2f), ctx.dpi(6f), ctx.dpi(2f))
+        background = GradientDrawable().apply { cornerRadius = ctx.dp(20f); setColor(pal.surfaceContainer) }
+        if (count > 1) addView(ctx.label("$count", 12f, pal.onSurface).apply { setPadding(ctx.dpi(2f), 0, ctx.dpi(1f), 0) })
+        addView(chevron, LayoutParams(ctx.dpi(16f), ctx.dpi(16f)))
         setOnClickListener { onClick() }
     }
+    fun setExpanded(e: Boolean) { chevron.symbol = if (e) Sym.EXPAND_LESS else Sym.EXPAND_MORE; chevron.invalidate() }
+}
+
+/** Title first, then "App · time" in the small info style, on one line (notification_2025_top_line). */
+private fun topLine(ctx: Context, pal: Palette, title: CharSequence?, info: String): TextView {
+    val sb = android.text.SpannableStringBuilder()
+    if (!title.isNullOrBlank()) {
+        sb.append(title)
+        sb.setSpan(android.text.style.TypefaceSpan(Fonts.medium), 0, sb.length, 0)
+        sb.setSpan(android.text.style.ForegroundColorSpan(pal.onSurface), 0, sb.length, 0)
+        sb.append("  ")
+    }
+    val st = sb.length
+    sb.append(info)
+    sb.setSpan(android.text.style.AbsoluteSizeSpan(12, true), st, sb.length, 0)
+    sb.setSpan(android.text.style.ForegroundColorSpan(pal.onSurfaceVariant), st, sb.length, 0)
+    return ctx.label(sb, 14f, pal.onSurface)
+}
 
 private fun actionPill(ctx: Context, pal: Palette, text: CharSequence, onClick: () -> Unit) =
     ctx.label(text, 14f, pal.onSurface, medium = true).apply {
@@ -193,56 +218,64 @@ class NotifCardView(
     private var expanded = host.isExpanded(e.key)
     private val textView: TextView
     private val expandArea = LinearLayout(ctx).apply { orientation = VERTICAL }
-    private val chevronView: SymbolView
+    private val pill: ExpandPill
     private var replyRow: LinearLayout? = null
 
     init {
+        // notification_2025_template_collapsed_base: 72 dp min height, 40 dp icon at 16 dp,
+        // content starts at 72 dp, 12 dp vertical margins, expand pill top-right with 16 dp padding.
         orientation = VERTICAL
         background = bg
-        setPadding(ctx.dpi(16f), ctx.dpi(14f), ctx.dpi(12f), ctx.dpi(14f))
+        minimumHeight = ctx.dpi(72f)
+        setPadding(0, 0, 0, ctx.dpi(4f))
 
-        val row = LinearLayout(ctx).apply { orientation = HORIZONTAL; gravity = Gravity.TOP }
+        val row = FrameLayout(ctx)
         val pkg = e.sbn.packageName
         val appIcon = AppInfo.icon(ctx, pkg)
         val large = try { n.getLargeIcon()?.loadDrawable(ctx) } catch (_: Exception) { null }
         val avatar = if (n.isMessaging() && large != null) AppAvatar(ctx, pal, large, appIcon, 40f)
         else AppAvatar(ctx, pal, appIcon, null, 40f)
-        row.addView(avatar, LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginEnd = ctx.dpi(14f) })
+        row.addView(avatar, FrameLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply {
+            leftMargin = ctx.dpi(16f); topMargin = ctx.dpi(16f)
+        })
 
         val col = LinearLayout(ctx).apply { orientation = VERTICAL }
         val sub = n.extras.getCharSequence(Notification.EXTRA_SUB_TEXT)
-        val head = buildString {
+        val info = buildString {
             append(AppInfo.label(ctx, pkg))
             if (!sub.isNullOrBlank()) append(" · ").append(sub)
             if (n.`when` > 0 && n.extras.getBoolean(Notification.EXTRA_SHOW_WHEN, true)) append(" · ").append(relativeTime(ctx, n.`when`))
         }
-        col.addView(ctx.label(head, 12f, pal.onSurfaceVariant))
-        val title = n.title()
-        if (!title.isNullOrBlank()) col.addView(ctx.label(title, 15f, pal.onSurface, medium = true).apply {
-            setPadding(0, ctx.dpi(3f), 0, 0)
-        })
+        col.addView(topLine(ctx, pal, n.title(), info).apply { setPadding(0, ctx.dpi(4f), 0, 0) })
         textView = ctx.label(n.shortText(), 14f, pal.onSurfaceVariant).apply {
             setPadding(0, ctx.dpi(2f), 0, 0)
             setLineSpacing(ctx.dp(2f), 1f)
         }
         if (!n.shortText().isNullOrBlank() || !n.longText().isNullOrBlank()) col.addView(textView)
-        row.addView(col, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val endRoom = ctx.dpi(16f + 28f + 8f) + (if (large != null && !n.isMessaging()) ctx.dpi(48f + 8f) else 0)
+        row.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            leftMargin = ctx.dpi(72f); rightMargin = endRoom; topMargin = ctx.dpi(12f); bottomMargin = ctx.dpi(12f)
+        })
 
         if (large != null && !n.isMessaging()) {
             row.addView(ImageView(ctx).apply {
                 setImageDrawable(large); scaleType = ImageView.ScaleType.CENTER_CROP
-                background = GradientDrawable().apply { cornerRadius = ctx.dp(10f); setColor(pal.surfaceContainer) }
+                background = GradientDrawable().apply { cornerRadius = ctx.dp(8f); setColor(pal.surfaceContainer) }
                 clipToOutline = true; outlineProvider = ViewOutlineProvider.BACKGROUND
-            }, LayoutParams(ctx.dpi(44f), ctx.dpi(44f)).apply { marginStart = ctx.dpi(10f) })
+            }, FrameLayout.LayoutParams(ctx.dpi(48f), ctx.dpi(48f), Gravity.END or Gravity.TOP).apply {
+                topMargin = ctx.dpi(12f); rightMargin = ctx.dpi(16f + 28f + 8f)
+            })
         }
 
-        chevronView = chevron(ctx, pal, expanded) { toggle() }
-        row.addView(chevronView, LayoutParams(ctx.dpi(28f), ctx.dpi(28f)).apply { marginStart = ctx.dpi(8f) })
+        pill = ExpandPill(ctx, pal, 0, expanded) { toggle() }
+        row.addView(pill, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.TOP).apply {
+            topMargin = ctx.dpi(16f); rightMargin = ctx.dpi(16f)
+        })
         addView(row)
 
         buildExpandArea()
         addView(expandArea, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = ctx.dpi(54f)
+            marginStart = ctx.dpi(72f); marginEnd = ctx.dpi(16f); bottomMargin = ctx.dpi(8f)
         })
         applyExpanded()
 
@@ -333,8 +366,7 @@ class NotifCardView(
     }
 
     private fun applyExpanded() {
-        chevronView.symbol = if (expanded) Sym.EXPAND_LESS else Sym.EXPAND_MORE
-        chevronView.invalidate()
+        pill.setExpanded(expanded)
         if (expanded) { textView.text = n.longText() ?: n.shortText(); textView.maxLines = 14 }
         else { textView.text = n.shortText(); textView.maxLines = 1 }
         expandArea.visibility = if (expanded && expandArea.childCount > 0) View.VISIBLE else View.GONE
@@ -355,35 +387,33 @@ class GroupCardView(
     private val groupKey = children.first().sbn.groupKey
     private var expanded = host.isExpanded(groupKey)
     private val list = LinearLayout(ctx).apply { orientation = VERTICAL }
-    private val chevronView: SymbolView
+    private val pill: ExpandPill
 
     init {
         orientation = VERTICAL
         background = bg
-        setPadding(ctx.dpi(16f), ctx.dpi(14f), ctx.dpi(12f), ctx.dpi(12f))
+        minimumHeight = ctx.dpi(72f)
         val pkg = children.first().sbn.packageName
-        val row = LinearLayout(ctx).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        row.addView(AppAvatar(ctx, pal, AppInfo.icon(ctx, pkg), null, 40f), LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginEnd = ctx.dpi(14f) })
-        val col = LinearLayout(ctx).apply { orientation = VERTICAL }
+        val row = FrameLayout(ctx)
+        row.addView(AppAvatar(ctx, pal, AppInfo.icon(ctx, pkg), null, 40f), FrameLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply {
+            leftMargin = ctx.dpi(16f); topMargin = ctx.dpi(16f)
+        })
         val latest = children.maxOf { it.n.`when` }
-        col.addView(ctx.label("${AppInfo.label(ctx, pkg)} · ${relativeTime(ctx, latest)}", 12f, pal.onSurfaceVariant))
         val sumTitle = summary?.n?.title() ?: summary?.n?.extras?.getCharSequence(Notification.EXTRA_SUB_TEXT)
-        col.addView(ctx.label(sumTitle ?: "${children.size} aviseringar", 15f, pal.onSurface, medium = true).apply {
-            setPadding(0, ctx.dpi(3f), 0, 0)
+        val head = LinearLayout(ctx).apply { orientation = VERTICAL }
+        head.addView(topLine(ctx, pal, sumTitle ?: AppInfo.label(ctx, pkg),
+            (if (sumTitle != null) "${AppInfo.label(ctx, pkg)} · " else "") + relativeTime(ctx, latest)).apply {
+            setPadding(0, ctx.dpi(4f), 0, 0)
         })
-        row.addView(col, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val count = ctx.label("${children.size}", 12f, pal.onSurface, medium = true).apply {
-            gravity = Gravity.CENTER
-            setPadding(ctx.dpi(8f), ctx.dpi(3f), ctx.dpi(8f), ctx.dpi(3f))
-            background = GradientDrawable().apply { setColor(pal.surfaceContainer); cornerRadius = ctx.dp(100f) }
-        }
-        row.addView(count)
-        chevronView = chevron(ctx, pal, expanded) { toggle() }
-        row.addView(chevronView, LayoutParams(ctx.dpi(28f), ctx.dpi(28f)).apply { marginStart = ctx.dpi(8f) })
+        head.addView(list, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        row.addView(head, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            leftMargin = ctx.dpi(72f); rightMargin = ctx.dpi(16f + 40f + 8f); topMargin = ctx.dpi(12f); bottomMargin = ctx.dpi(12f)
+        })
+        pill = ExpandPill(ctx, pal, children.size, expanded) { toggle() }
+        row.addView(pill, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.TOP).apply {
+            topMargin = ctx.dpi(16f); rightMargin = ctx.dpi(16f)
+        })
         addView(row)
-        addView(list, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = ctx.dpi(54f); topMargin = ctx.dpi(6f)
-        })
         fillList()
         setOnClickListener { host.launch(summary?.n?.contentIntent ?: children.first().n.contentIntent) }
     }
@@ -394,7 +424,7 @@ class GroupCardView(
         shown.forEach { c ->
             val r = LinearLayout(context).apply {
                 orientation = VERTICAL
-                setPadding(0, context.dpi(6f), 0, context.dpi(6f))
+                setPadding(0, context.dpi(4f), 0, context.dpi(4f))
                 setOnClickListener {
                     host.launch(c.n.contentIntent)
                     if (c.n.flags and Notification.FLAG_AUTO_CANCEL != 0 && c.sbn.isClearable) host.dismiss(listOf(c.key))
@@ -415,8 +445,7 @@ class GroupCardView(
         (parent?.parent as? ViewGroup)?.let { TransitionManager.beginDelayedTransition(it, AutoTransition().setDuration(250).setInterpolator(EMPHASIZED)) }
         expanded = !expanded
         host.setExpanded(groupKey, expanded)
-        chevronView.symbol = if (expanded) Sym.EXPAND_LESS else Sym.EXPAND_MORE
-        chevronView.invalidate()
+        pill.setExpanded(expanded)
         fillList()
     }
 }

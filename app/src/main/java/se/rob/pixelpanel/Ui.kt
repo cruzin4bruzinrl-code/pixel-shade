@@ -57,8 +57,8 @@ class Palette(private val ctx: Context) {
     val onPrimary = if (night) t(1, 800) else t(1, 0)
     val primaryContainer = if (night) t(1, 700) else t(1, 100)
     val surface = if (night) t(4, 900) else t(4, 50)
-    /** Notification cards and pills: near-white in light mode, raised in dark mode. */
-    val card = if (night) t(4, 800) else t(4, 10)
+    /** Notification rows: surfaceEffect1 when blur is on (AOSP notificationRowTransparency), like the tiles. */
+    val card get() = effect1
     /** Inactive QS tile: translucent so the blurred backdrop shows through, like Pixel 10. */
     // AOSP Android 16 QPR1 "surface effect" tokens (frameworks/base core/res/res/color[-night]/surface_effect_N_color.xml)
     private fun lstar(c: Int, l: Double) = Hct.fromInt(c).let { Hct.from(it.hue, it.chroma, l).toInt() }
