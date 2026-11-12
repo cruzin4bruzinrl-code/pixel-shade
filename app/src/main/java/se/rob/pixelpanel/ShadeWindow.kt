@@ -1034,15 +1034,24 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             override fun dispatchTouchEvent(ev: MotionEvent): Boolean { tap.onTouchEvent(ev); return super.dispatchTouchEvent(ev) }
         }.apply {
             isVerticalScrollBarEnabled = false
-            clipToPadding = false
-            setPadding(0, ctx.dpi(16f), 0, ctx.dpi(8f))
-            // Cards fade out under the tiles when scrolled, instead of being cut off flat.
-            isVerticalFadingEdgeEnabled = true
-            setFadingEdgeLength(ctx.dpi(24f))
+            // Pixel clips the notification stack to a rounded rectangle with the card radius
+            // (notification_corner_radius 28 dp): cards slide under a rounded edge, no fade, no haze.
+            clipToPadding = true
+            setPadding(0, 0, 0, 0)
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) {
+                    o.setRoundRect(0, 0, v.width, v.height, ctx.dp(28f))
+                }
+            }
+            clipToOutline = true
             addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         notifScroll = scroll
-        panel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // notification_section_divider_height: 16 dp between quick settings and the stack
+        panel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
+            topMargin = ctx.dpi(16f)
+        })
         val actions = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(pill(ctx, pal, "Hantera") {
             startSettings(Intent(if (Build.VERSION.SDK_INT >= 32) Settings.ACTION_ALL_APPS_NOTIFICATION_SETTINGS else "android.settings.NOTIFICATION_SETTINGS"))
