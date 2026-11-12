@@ -211,8 +211,8 @@ class ShadeService : AccessibilityService() {
         // The lock screen lives in the same window on Samsung: leave it alone.
         if (km?.isKeyguardLocked == true) false else windows.any { w ->
             val r = android.graphics.Rect().also { w.getBoundsInScreen(it) }
-            r.height() > screenH * 0.6f &&
             val t = w.title?.toString()?.lowercase() ?: ""
+            r.height() > screenH * 0.6f &&
             w.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
                 ("shade" in t || "panel" in t || "notification" in t || "meddelande" in t || "avisering" in t) &&
                 !("volume" in t || "volym" in t || "navigation" in t || "status bar" in t || "statusfält" in t)
