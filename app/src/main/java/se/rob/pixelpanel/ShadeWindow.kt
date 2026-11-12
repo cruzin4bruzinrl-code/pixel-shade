@@ -664,9 +664,55 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             "dex", "linkwindows", "multicontrol", "wificall", "interpreter", "auracast").forEach { tiles[it]?.setOn(false) }
     }
 
+    private fun autoBrightness() = Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, 0) ==
+        Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+
+    /** Long press on the brightness slider: adaptive brightness on/off, like Pixel. */
+    private fun openBrightnessSheet() {
+        if (editor != null) return
+        val pal = Palette(ctx)
+        val dim = FrameLayout(ctx).apply { setBackgroundColor(0x66000000); isClickable = true }
+        val sheet = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(16f))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.card); cornerRadius = ctx.dp(28f) }
+            isClickable = true
+        }
+        sheet.addView(ctx.label("Ljusstyrka", 20f, pal.onSurface))
+        sheet.addView(ctx.label("Anpassad ljusstyrka justerar skärmen efter ljuset runt dig och lär sig hur du vill ha den.",
+            13f, pal.onSurfaceVariant, lines = 0).apply { setPadding(0, ctx.dpi(6f), 0, ctx.dpi(14f)) })
+        val t = Tile(ctx, pal, Sym.BRIGHTNESS_AUTO, "Anpassad ljusstyrka", "", true).apply { dualStyle = false }
+        fun sync() { val on = autoBrightness(); t.setOn(on); t.secondary = if (on) "På" else "Av"; slider?.autoOn = on }
+        t.onTap = {
+            if (!Settings.System.canWrite(ctx)) { root.removeView(dim); askWriteSettings() }
+            else {
+                Settings.System.putInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                    if (autoBrightness()) Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL else Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC)
+                sync()
+            }
+        }
+        sync()
+        sheet.addView(t, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(68f)))
+        val buttons = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, ctx.dpi(14f), 0, 0) }
+        buttons.addView(pill(ctx, pal, "Fler inställningar") { root.removeView(dim); startSettings(Intent(Settings.ACTION_DISPLAY_SETTINGS)) }.apply {
+            (background as? android.graphics.drawable.GradientDrawable)?.setColor(pal.surfaceContainer)
+        })
+        buttons.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
+        buttons.addView(pill(ctx, pal, "Klar") { root.removeView(dim) }.apply {
+            (background as? android.graphics.drawable.GradientDrawable)?.setColor(pal.primary); setTextColor(pal.onPrimary)
+        })
+        sheet.addView(buttons)
+        dim.setOnClickListener { root.removeView(dim) }
+        dim.addView(sheet, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            leftMargin = ctx.dpi(12f); rightMargin = ctx.dpi(12f); bottomMargin = navBarHeight() + ctx.dpi(12f)
+        })
+        root.addView(dim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
     private fun refreshBrightness() {
         val raw = Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
         slider?.setLinear(raw / 255f)
+        slider?.autoOn = autoBrightness()
     }
 
     private fun writeBrightness(linear: Float) {
@@ -876,6 +922,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val sl = BrightnessSlider(ctx, pal)
         sl.onFirstTouch = { if (Settings.System.canWrite(ctx)) true else { askWriteSettings(); false } }
         sl.onChange = { linear, _ -> writeBrightness(linear) }
+        sl.onLong = { openBrightnessSheet() }
         slider = sl
         top.addView(sl, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply {
             bottomMargin = ctx.dpi(14f)

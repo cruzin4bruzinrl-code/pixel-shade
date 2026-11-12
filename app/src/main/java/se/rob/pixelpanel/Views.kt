@@ -266,8 +266,21 @@ class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
         private set
     var onChange: ((Float, Boolean) -> Unit)? = null
     var onFirstTouch: (() -> Boolean)? = null
+    /** Long press: brightness options (adaptive brightness). */
+    var onLong: (() -> Unit)? = null
+    /** Shows Pixel's auto-brightness mark at the end of the track. */
+    var autoOn = false
+        set(v) { field = v; invalidate() }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
+    private var downX = 0f
+    private var moved = false
+    private var longFired = false
+    private val longPress = Runnable {
+        longFired = true
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        onLong?.invoke()
+    }
     private val r = RectF()
     private var dragging = false
     private var handleW = ctx.dp(4f)
@@ -278,14 +291,26 @@ class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (onFirstTouch?.invoke() == false) return false
                 parent.requestDisallowInterceptTouchEvent(true)
-                dragging = true; animateHandle(context.dp(2f))
-                update(e)
+                downX = e.x; moved = false; longFired = false
+                postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
             }
-            MotionEvent.ACTION_MOVE -> update(e)
+            MotionEvent.ACTION_MOVE -> {
+                if (longFired) return true
+                if (!moved && abs(e.x - downX) > ViewConfiguration.get(context).scaledTouchSlop) {
+                    removeCallbacks(longPress)
+                    if (onFirstTouch?.invoke() == false) { longFired = true; return true }
+                    moved = true; dragging = true; animateHandle(context.dp(2f))
+                }
+                if (moved) update(e)
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                update(e); dragging = false; animateHandle(context.dp(4f))
+                removeCallbacks(longPress)
+                if (!longFired && e.actionMasked == MotionEvent.ACTION_UP) {
+                    if (!moved && onFirstTouch?.invoke() == false) return true
+                    update(e)
+                }
+                if (dragging) { dragging = false; animateHandle(context.dp(4f)) }
             }
         }
         return true
@@ -330,6 +355,11 @@ class BrightnessSlider(ctx: Context, private val pal: Palette) : View(ctx) {
         val iconX = context.dp(24f)
         val onActive = x - gap > iconX + context.dp(14f)
         drawSymbol(c, Sym.LIGHT_MODE, iconX, h / 2, context.dp(20f), if (onActive) pal.onPrimary else pal.onSurface, true)
+        if (autoOn) {
+            val ax = w - context.dp(24f)
+            val onTrack = x + gap < ax - context.dp(14f)
+            drawSymbol(c, Sym.BRIGHTNESS_AUTO, ax, h / 2, context.dp(20f), if (onTrack) pal.onSurface else pal.onPrimary, true)
+        }
     }
 
     companion object {
