@@ -198,7 +198,32 @@ class ShadeService : AccessibilityService() {
 
     fun rebuildShade() { if (::shade.isInitialized) shade.rebuild() }
 
-    fun samsungQuickPanel() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS) }
+    private var allowSamsungUntil = 0L
+    fun samsungQuickPanel() {
+        allowSamsungUntil = android.os.SystemClock.uptimeMillis() + 4000
+        performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+    }
+
+    /** True when Samsung's own notification panel / quick panel window is on screen. */
+    private fun samsungShadeShowing(): Boolean = try {
+        val km = getSystemService(android.app.KeyguardManager::class.java)
+        val screenH = resources.displayMetrics.heightPixels
+        // The lock screen lives in the same window on Samsung: leave it alone.
+        if (km?.isKeyguardLocked == true) false else windows.any { w ->
+            val r = android.graphics.Rect().also { w.getBoundsInScreen(it) }
+            r.height() > screenH * 0.6f &&
+            val t = w.title?.toString()?.lowercase() ?: ""
+            w.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
+                ("shade" in t || "panel" in t || "notification" in t || "meddelande" in t || "avisering" in t) &&
+                !("volume" in t || "volym" in t || "navigation" in t || "status bar" in t || "statusfält" in t)
+        }
+    } catch (_: Exception) { false }
+
+    private val swapSamsungShade = Runnable {
+        if (!samsungShadeShowing()) return@Runnable
+        performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+        mainHandler.postDelayed({ openShade() }, 180)
+    }
 
     fun powerMenu() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG) }
 
@@ -219,7 +244,17 @@ class ShadeService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        if (event == null) return
+        // Samsung's own panel came down (swipe on the home screen, a corner we don't cover…):
+        // put it away and show ours instead, unless it was opened on purpose (double tap).
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED || event.packageName == "com.android.systemui") {
+            if (::shade.isInitialized && !shade.isOpen && android.os.SystemClock.uptimeMillis() > allowSamsungUntil &&
+                !Prefs.bankSuspended(this)) {
+                mainHandler.removeCallbacks(swapSamsungShade)
+                mainHandler.postDelayed(swapSamsungShade, 60)
+            }
+        }
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
         // Watchdog: make sure the pull-down strip is still there and touchable after every app switch.
         if (!::wm.isInitialized || instance == null) return

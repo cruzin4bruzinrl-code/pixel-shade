@@ -95,8 +95,8 @@ object Prefs {
     fun setBlurRadius(ctx: Context, v: Int) = sp(ctx).edit().putInt("blurRadius", v).apply()
 
     /** Fraction of the screen width, from the right, left to Samsung's own panel. */
-    fun samsungCorner(ctx: Context) = sp(ctx).getBoolean("samsungCorner", true)
-    fun setSamsungCorner(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("samsungCorner", v).apply()
+    fun samsungCorner(ctx: Context) = sp(ctx).getBoolean("samsungCorner2", false)
+    fun setSamsungCorner(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("samsungCorner2", v).apply()
 
     /** Quick settings layout: "id:w,id:s,…" (w = wide). Null = default. */
     fun tileLayout(ctx: Context): String? = sp(ctx).getString("tileLayout", null)
@@ -135,6 +135,13 @@ object Prefs {
  */
 object WallSeed {
     @Volatile var cached: Int? = null
+    private var pending = 0
+    private var pendingCount = 0
+    private fun near(a: Int, b: Int): Boolean {
+        val x = Hct.fromInt(a); val y = Hct.fromInt(b)
+        val d = kotlin.math.abs(x.hue - y.hue).let { kotlin.math.min(it, 360 - it) }
+        return d < 15 && kotlin.math.abs(x.chroma - y.chroma) < 12
+    }
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -168,8 +175,16 @@ object WallSeed {
                 val oldH = if (old == 0) null else Hct.fromInt(old)
                 val newH = Hct.fromInt(seed)
                 val dh = oldH?.let { kotlin.math.abs(it.hue - newH.hue).let { d -> kotlin.math.min(d, 360 - d) } } ?: 999.0
-                val moved = oldH == null || dh > 8 || kotlin.math.abs(oldH.chroma - newH.chroma) > 8
-                if (moved) {
+                val moved = oldH == null || dh > 15 || kotlin.math.abs(oldH.chroma - newH.chroma) > 12
+                // A changed colour has to be seen twice in a row before the shade recolours, so a
+                // folder, the app drawer or a widget on screen can't make the colours flicker.
+                val confirmed = oldH == null || run {
+                    if (pending != 0 && near(pending, seed)) pendingCount++ else { pending = seed; pendingCount = 1 }
+                    pendingCount >= 2
+                }
+                if (!moved) { pending = 0; pendingCount = 0 }
+                if (moved && confirmed) {
+                    pending = 0; pendingCount = 0
                     Prefs.setWallSeed(ctx, seed)
                     cached = seed
                     main.post { changed() }

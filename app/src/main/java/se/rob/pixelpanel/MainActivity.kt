@@ -264,7 +264,7 @@ class MainActivity : Activity() {
             it.addView(switch("Fånga svepet nedåt", Prefs.captureEnabled(this)) { on ->
                 Prefs.setCaptureEnabled(this, on); ShadeService.instance?.updateStrip()
             })
-            it.addView(switch("Lämna högra hörnet till Samsung", Prefs.samsungCorner(this)) { on ->
+            it.addView(switch("Lämna högra hörnet till Samsungs panel", Prefs.samsungCorner(this)) { on ->
                 Prefs.setSamsungCorner(this, on); ShadeService.instance?.updateStrip()
             })
             it.addView(text(
