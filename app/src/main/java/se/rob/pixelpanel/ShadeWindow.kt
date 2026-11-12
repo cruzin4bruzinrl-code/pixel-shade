@@ -76,6 +76,12 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var collapsedQsH = 0      // visible QS height when collapsed (first tile row)
     private var fullQsH = 0           // QS height when expanded (all rows + footer)
     private var panelTop = 0          // y where the notification panel starts when collapsed
+    private var mediaH = 0            // height of the media player above the tiles (0 = none)
+    private var qsMedia: FrameLayout? = null
+    private var topBlock: LinearLayout? = null
+    private var activeChip: View? = null
+    private var activeChipText: TextView? = null
+    private var activeApps: List<String> = emptyList()
 
     var expansion = 0f
         private set
@@ -415,7 +421,82 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         try { list.render(NotifStore.entries, NotifStore.service != null) }
         catch (t: Throwable) { CrashLog.write(ctx, "render", t) }
         clearAllPill?.visibility = if (list.hasClearable) View.VISIBLE else View.INVISIBLE
+        try { renderQsExtras() } catch (t: Throwable) { CrashLog.write(ctx, "qs-media", t) }
         notifsDirty = false
+    }
+
+    /** Media player in expanded QS and the "N apps are active" chip, both from the current notifications. */
+    private fun renderQsExtras() {
+        val pal = Palette(ctx)
+        val media = NotifStore.entries.filter { it.n.isMedia() }.maxByOrNull { it.sbn.postTime }
+        qsMedia?.let { holder ->
+            holder.removeAllViews()
+            if (media != null) {
+                holder.addView(MediaCard(ctx, pal, media, this), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                holder.visibility = View.VISIBLE
+            } else holder.visibility = View.GONE
+            val newMediaH = if (media != null) ctx.dpi(176f) + ctx.dpi(12f) else 0
+            if (newMediaH != mediaH) {
+                // Re-measure: the expanded QS block got taller or shorter.
+                val qs = qsBlock; val top = topBlock
+                if (qs != null && top != null) {
+                    val sw = try { wm.currentWindowMetrics.bounds.width() } catch (_: Exception) { ctx.resources.displayMetrics.widthPixels }
+                    top.measure(View.MeasureSpec.makeMeasureSpec(sw, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    fullQsH = qs.measuredHeight
+                }
+                mediaH = newMediaH
+                applyExpansion(expansion)
+            }
+        }
+        // Apps with a foreground service, like Pixel's Task Manager chip
+        activeApps = NotifStore.entries
+            .filter { it.n.flags and android.app.Notification.FLAG_FOREGROUND_SERVICE != 0 }
+            .map { it.sbn.packageName }
+            .filter { it != ctx.packageName && it != "android" && it != "com.android.systemui" }
+            .distinct()
+        val n = activeApps.size
+        activeChip?.visibility = if (n > 0) View.VISIBLE else View.INVISIBLE
+        activeChipText?.text = if (n == 1) "1 app är aktiv" else "$n appar är aktiva"
+    }
+
+    private fun openActiveApps() {
+        if (editor != null || activeApps.isEmpty()) return
+        val pal = Palette(ctx)
+        val sheet = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(20f), ctx.dpi(16f))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.card); cornerRadius = ctx.dp(28f) }
+            isClickable = true
+        }
+        sheet.addView(ctx.label("Aktiva appar", 20f, pal.onSurface))
+        sheet.addView(ctx.label("Appar som körs i bakgrunden och använder batteri.", 13f, pal.onSurfaceVariant, lines = 0).apply {
+            setPadding(0, ctx.dpi(6f), 0, ctx.dpi(12f))
+        })
+        val dim = FrameLayout(ctx).apply { setBackgroundColor(0x66000000); isClickable = true }
+        activeApps.forEach { pkg ->
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, ctx.dpi(8f), 0, ctx.dpi(8f)) }
+            row.addView(AppAvatar(ctx, pal, AppInfo.icon(ctx, pkg), null, 36f), LinearLayout.LayoutParams(ctx.dpi(36f), ctx.dpi(36f)).apply { marginEnd = ctx.dpi(12f) })
+            row.addView(ctx.label(AppInfo.label(ctx, pkg), 15f, pal.onSurface), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(pill(ctx, pal, "Stoppa") {
+                if (Shell.granted()) {
+                    Shell.run("am force-stop $pkg") { root.removeView(dim) }
+                } else {
+                    root.removeView(dim)
+                    startSettings(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$pkg")))
+                }
+            }.apply { (background as? android.graphics.drawable.GradientDrawable)?.setColor(pal.surfaceContainer) })
+            sheet.addView(row)
+        }
+        sheet.addView(pill(ctx, pal, "Klar") { root.removeView(dim) }.apply {
+            (background as? android.graphics.drawable.GradientDrawable)?.setColor(pal.primary); setTextColor(pal.onPrimary)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.END; topMargin = ctx.dpi(8f)
+        })
+        dim.setOnClickListener { root.removeView(dim) }
+        dim.addView(sheet, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            leftMargin = ctx.dpi(12f); rightMargin = ctx.dpi(12f); bottomMargin = navBarHeight() + ctx.dpi(12f)
+        })
+        root.addView(dim, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     // ---- Rendering --------------------------------------------------------------------
@@ -829,8 +910,20 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
         // Footer: page dots on the left, settings and power on the right
         val footer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        footer.addView(pager.dots.apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL },
-            LinearLayout.LayoutParams(0, ctx.dpi(40f), 1f).apply { marginStart = ctx.dpi(6f) })
+        // Pixel's "N apps are active" chip (apps running in the foreground)
+        val chip = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dpi(14f), 0, ctx.dpi(10f), 0)
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(pal.tileOff); cornerRadius = ctx.dp(100f) }
+            setOnClickListener { openActiveApps() }
+        }
+        activeChipText = ctx.label("", 13f, pal.onSurface, medium = true)
+        chip.addView(activeChipText)
+        chip.addView(SymbolView(ctx, Sym.EXPAND_MORE, pal.onSurface, 18f).apply { rotation = -90f },
+            LinearLayout.LayoutParams(ctx.dpi(20f), ctx.dpi(20f)).apply { marginStart = ctx.dpi(2f) })
+        activeChip = chip
+        footer.addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dpi(36f)))
+        footer.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
         val circleBg = { color: Int -> android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(color) } }
         footer.addView(SymbolView(ctx, Sym.EDIT, pal.onSurface, 20f, filled = true).apply {
@@ -848,13 +941,23 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginStart = ctx.dpi(10f) })
 
         val qs = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        // Media player sits on top of the tiles when quick settings are expanded (Pixel 10).
+        val mh = FrameLayout(ctx).apply { visibility = View.GONE }
+        qsMedia = mh
+        qs.addView(mh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(176f)).apply {
+            bottomMargin = ctx.dpi(12f)
+        })
         qs.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        qs.addView(pager.dots.apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(6f)).apply {
+            topMargin = ctx.dpi(12f)
+        })
         qs.addView(footer, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(40f)).apply {
             topMargin = ctx.dpi(10f)
         })
         qsBlock = qs
+        topBlock = top
         top.addView(qs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        expandOnly.clear(); expandOnly += laterViews + footer
+        expandOnly.clear(); expandOnly += laterViews + footer + pager.dots + mh
 
         // Notification panel: starts under the first tile row, slides down when QS expands
         val panel = LinearLayout(ctx).apply {
@@ -908,6 +1011,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         )
         collapsedQsH = tileH
         fullQsH = qs.measuredHeight
+        mediaH = 0
         panelTop = top.paddingTop + header.measuredHeight + ctx.dpi(18f) + ctx.dpi(52f) + ctx.dpi(14f) + tileH
         (panel.layoutParams as FrameLayout.LayoutParams).apply {
             topMargin = panelTop
@@ -931,7 +1035,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val c = e.coerceIn(0f, 1f)
         val qs = qsBlock ?: return
         val extra = expandDistance * e
-        clip.set(0, 0, qs.width.coerceAtLeast(1), (collapsedQsH + extra).toInt().coerceAtLeast(1))
+        // With a media player above the tiles, the collapsed view starts below it; as QS expand,
+        // the block slides down so the player appears on top.
+        val hidden = mediaH * (1f - c)
+        qs.translationY = -hidden
+        clip.set(0, hidden.toInt(), qs.width.coerceAtLeast(1), (hidden + collapsedQsH + extra).toInt().coerceAtLeast(1))
         qs.clipBounds = clip
         notifPanel?.let {
             it.translationY = extra
