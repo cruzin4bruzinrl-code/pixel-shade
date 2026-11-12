@@ -82,6 +82,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var hdrDate: TextView? = null
     private var hdrStatus: View? = null
     private var qqsRows = 2
+    private var qsScroll = 0f
+    private var qsScrollMax = 0f
+    private var scrollStart = 0f
     private var mediaGap: View? = null
     private var mediaH = 0            // height of the media player above the tiles (0 = none)
     private var geoTileH = 0
@@ -355,6 +358,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     fun close() {
+        qsScroll = 0f
         if (!shown) return
         hideIme()
         editor?.let { e -> editor = null; root.removeView(e) }
@@ -461,6 +465,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val contentBottom = if (media > 0) geo.mediaC + media else geo.qqsTop + qqsH
         panelTop = contentBottom + ctx.dpi(8f)
         geo.panelTravel = (geo.qsE + fullQsH + ctx.dpi(24f) - panelTop).coerceAtLeast(1)
+        qsScrollMax = (geo.qsE + fullQsH + ctx.dpi(16f) - (screenHeight() - navBarHeight())).toFloat().coerceAtLeast(0f)
+        qsScroll = qsScroll.coerceIn(0f, qsScrollMax)
         (panel.layoutParams as FrameLayout.LayoutParams).apply { topMargin = panelTop; height = screenHeight() - panelTop }
         panel.layoutParams = panel.layoutParams
         applyExpansion(expansion)
@@ -971,8 +977,9 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val rows = TileCatalog.rows(ids) { tiles.getValue(it).wide }.map { row(it) }
         // Rows per page: whatever fits between brightness and the footer with room for media below the tiles.
         val availDp = screenHeight() / ctx.resources.displayMetrics.density - navBarHeight() / ctx.resources.displayMetrics.density -
-            ctx.statusBarHeight() / ctx.resources.displayMetrics.density - (120 + 8 + 52 + 16) - (176 + 12) - (12 + 6 + 10 + 40) - 16
-        val rpp = ((availDp + 8) / (72 + 8)).toInt().coerceIn(2, 4)
+            ctx.statusBarHeight() / ctx.resources.displayMetrics.density - (120 + 8 + 52 + 16) - (12 + 6 + 10 + 40) - 16
+        // Pixel 10 shows four rows; expanded QS scrolls when media makes it taller than the screen.
+        val rpp = ((availDp + 8) / (72 + 8)).toInt().coerceIn(3, 4)
         val pages = rows.chunked(rpp).map { pageRows ->
             LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1123,6 +1130,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val qs = qsBlock ?: return
         val sb = ctx.statusBarHeight().toFloat()
         // Header: clock grows 2.57x from the status bar row (anchored start), date drops below it.
+        val sc = qsScroll * c
         hdrClock?.let { cl ->
             val h = cl.measuredHeight.toFloat()
             val s = lerp(1f, 2.57f, c)
@@ -1130,19 +1138,19 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             cl.scaleX = s; cl.scaleY = s
             val dateRowC = geo.hdrBottom - ctx.dp(10f)
             val bigCenter = dateRowC - ctx.dp(10f) - ctx.dp(16f) - h * 2.57f / 2f
-            cl.translationY = lerp(sb / 2f, bigCenter, c) - h / 2f
+            cl.translationY = lerp(sb / 2f, bigCenter, c) - h / 2f - sc
             hdrDate?.let { d ->
                 d.translationX = lerp(cl.measuredWidth + ctx.dp(5f), 0f, c)
-                d.translationY = lerp(sb / 2f, dateRowC, c) - d.measuredHeight / 2f
+                d.translationY = lerp(sb / 2f, dateRowC, c) - d.measuredHeight / 2f - sc
             }
-            hdrStatus?.let { st -> st.translationY = lerp(sb / 2f, dateRowC, c) - st.measuredHeight / 2f }
+            hdrStatus?.let { st -> st.translationY = lerp(sb / 2f, dateRowC, c) - st.measuredHeight / 2f - sc }
         }
         slider?.let {
-            it.translationY = geo.sliderE - ctx.dp(16f) * (1f - c)
+            it.translationY = geo.sliderE - ctx.dp(16f) * (1f - c) - sc
             it.visibility = if (c < 0.02f) View.INVISIBLE else View.VISIBLE
         }
-        qsMedia?.translationY = lerp(geo.mediaC.toFloat(), geo.mediaE.toFloat(), c)
-        qs.translationY = lerp(geo.qqsTop.toFloat(), geo.qsE.toFloat(), c)
+        qsMedia?.translationY = lerp(geo.mediaC.toFloat(), geo.mediaE.toFloat(), c) - sc
+        qs.translationY = lerp(geo.qqsTop.toFloat(), geo.qsE.toFloat(), c) - sc
         // Only the tile grid is clipped (QQS rows -> full page); media sits below it and never overlaps.
         tilePager?.let { pg ->
             clip.set(0, 0, pg.width.coerceAtLeast(1), lerp(collapsedQsH.toFloat(), pg.height.toFloat(), c).toInt().coerceAtLeast(1))
@@ -1160,6 +1168,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     fun expandTo(target: Float, velocity: Float = 0f) {
+        if (target < 0.5f) qsScroll = 0f
         if (target < 0.5f) tilePager?.toFirstPage()
         expSpring.setStartVelocity(velocity)
         expSpring.animateToFinalPosition(target)
@@ -1175,11 +1184,15 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         return if (dy < 0) {
             expansion > 0.01f || !(inScroll && s!!.canScrollVertically(1))
         } else {
-            expansion < 0.99f && !(inScroll && s!!.canScrollVertically(-1))
+            (expansion < 0.99f || qsScroll > 0f) && !(inScroll && s!!.canScrollVertically(-1))
         }
     }
 
     private fun shadeDragStart(dy: Float) {
+        // Fully expanded and taller than the screen: scroll quick settings first (Pixel's QS scroll view)
+        if (expansion > 0.98f && ((dy < 0 && qsScroll < qsScrollMax) || (dy > 0 && qsScroll > 0f))) {
+            dragMode = 2; scrollStart = qsScroll; expSpring.cancel(); return
+        }
         if (dy > 0 || expansion > 0.01f) {
             dragMode = 1
             expSpring.cancel()
@@ -1192,6 +1205,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     private fun shadeDrag(dy: Float) {
+        if (dragMode == 2) { qsScroll = (scrollStart - dy).coerceIn(0f, qsScrollMax); applyExpansion(expansion); return }
         if (dragMode == 1) {
             var e = expStart + dy / expandDistance
             if (e > 1f) e = 1f + (e - 1f) * 0.25f
@@ -1201,6 +1215,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     }
 
     private fun shadeRelease(vy: Float) {
+        if (dragMode == 2) { dragMode = 1; return }
         if (dragMode == 1) {
             val v = vy / expandDistance
             val target = when { v > 0.8f -> 1f; v < -0.8f -> 0f; else -> if (expansion > 0.35f) 1f else 0f }
