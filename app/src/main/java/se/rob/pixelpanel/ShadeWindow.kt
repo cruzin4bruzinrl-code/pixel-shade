@@ -76,6 +76,12 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var collapsedQsH = 0      // visible QS height when collapsed (first tile row)
     private var fullQsH = 0           // QS height when expanded (all rows + footer)
     private var panelTop = 0          // y where the notification panel starts when collapsed
+    private class Geo { var qqsTop = 0; var mediaC = 0; var hdrBottom = 0; var sliderE = 0; var mediaE = 0; var qsE = 0; var panelTravel = 1 }
+    private val geo = Geo()
+    private var hdrClock: TextView? = null
+    private var hdrDate: TextView? = null
+    private var hdrStatus: View? = null
+    private var qqsRows = 2
     private var mediaH = 0            // height of the media player above the tiles (0 = none)
     private var geoTileH = 0
     private var qsMedia: FrameLayout? = null
@@ -459,12 +465,6 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         applyExpansion(expansion)
     }
 
-    private class Geo { var qqsTop = 0; var mediaC = 0; var hdrBottom = 0; var sliderE = 0; var mediaE = 0; var qsE = 0; var panelTravel = 1 }
-    private val geo = Geo()
-    private var hdrClock: TextView? = null
-    private var hdrDate: TextView? = null
-    private var hdrStatus: View? = null
-    private var qqsRows = 2
 
     /** Media player in expanded QS and the "N apps are active" chip, both from the current notifications. */
     private fun renderQsExtras() {
