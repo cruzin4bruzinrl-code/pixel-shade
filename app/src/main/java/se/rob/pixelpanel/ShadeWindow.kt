@@ -79,7 +79,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private var mediaH = 0            // height of the media player above the tiles (0 = none)
     private var geoTileH = 0
     private var qsMedia: FrameLayout? = null
-    private var topBlock: LinearLayout? = null
+    private var topBlock: FrameLayout? = null
     private var activeChip: View? = null
     private var activeChipText: TextView? = null
     private var activeApps: List<String> = emptyList()
@@ -433,15 +433,38 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private fun relayoutGeometry() {
         val top = topBlock ?: return; val qs = qsBlock ?: return; val panel = notifPanel ?: return
         val sw = try { wm.currentWindowMetrics.bounds.width() } catch (_: Exception) { ctx.resources.displayMetrics.widthPixels }
-        top.measure(View.MeasureSpec.makeMeasureSpec(sw, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-        collapsedQsH = mediaH + geoTileH
+        val wSpec = View.MeasureSpec.makeMeasureSpec(sw, View.MeasureSpec.EXACTLY)
+        val any = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        qs.measure(View.MeasureSpec.makeMeasureSpec(sw - ctx.dpi(32f), View.MeasureSpec.EXACTLY), any)
+        hdrClock?.measure(any, any); hdrDate?.measure(any, any); hdrStatus?.measure(any, any)
+        top.measure(wSpec, any)
+        val sb = ctx.statusBarHeight()
+        val tileH = ctx.dpi(72f); val gap = ctx.dpi(8f)
+        val qqsH = if (qqsRows >= 2) tileH * 2 + gap else tileH
+        val media = if (mediaH > 0) ctx.dpi(176f) else 0
+        geo.qqsTop = sb + ctx.dpi(8f)
+        geo.mediaC = geo.qqsTop + qqsH + ctx.dpi(16f)
+        geo.hdrBottom = sb + ctx.dpi(120f)            // ShadeHeader.Dimensions.ExpandedHeight
+        geo.sliderE = geo.hdrBottom + ctx.dpi(8f)
+        geo.mediaE = geo.sliderE + ctx.dpi(52f) + ctx.dpi(16f)
+        geo.qsE = geo.mediaE + (if (media > 0) media + ctx.dpi(12f) else 0)
+        collapsedQsH = qqsH
         fullQsH = qs.measuredHeight
-        val above = top.measuredHeight - qs.measuredHeight // header + slider + margins
-        panelTop = above + collapsedQsH
+        // qqs_layout_padding_bottom 24 dp below QQS/media; the stack adds its own 16 dp section gap
+        val contentBottom = if (media > 0) geo.mediaC + media else geo.qqsTop + qqsH
+        panelTop = contentBottom + ctx.dpi(8f)
+        geo.panelTravel = (geo.qsE + fullQsH + ctx.dpi(24f) - panelTop).coerceAtLeast(1)
         (panel.layoutParams as FrameLayout.LayoutParams).apply { topMargin = panelTop; height = screenHeight() - panelTop }
         panel.layoutParams = panel.layoutParams
         applyExpansion(expansion)
     }
+
+    private class Geo { var qqsTop = 0; var mediaC = 0; var hdrBottom = 0; var sliderE = 0; var mediaE = 0; var qsE = 0; var panelTravel = 1 }
+    private val geo = Geo()
+    private var hdrClock: TextView? = null
+    private var hdrDate: TextView? = null
+    private var hdrStatus: View? = null
+    private var qqsRows = 2
 
     /** Media player in expanded QS and the "N apps are active" chip, both from the current notifications. */
     private fun renderQsExtras() {
@@ -896,48 +919,38 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val pad = ctx.dpi(16f)
         content.clipChildren = true
 
-        val top = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, ctx.statusBarHeight() + ctx.dpi(8f), pad, 0)
-        }
-
-        // Header: large clock + date on the left; status icons and battery on the right
-        val header = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        val clockCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        clockCol.addView(TextClock(ctx).apply {
+        // AOSP ShadeHeader: collapsed = small clock + date in the status bar row; expanded = the same
+        // clock scaled 2.57x over a 120 dp header with date and status icons on the row below.
+        // Everything in `top` is placed absolutely and interpolated in applyExpansion().
+        val top = FrameLayout(ctx).apply { clipChildren = false }
+        val clock = TextClock(ctx).apply {
             format24Hour = "HH:mm"; format12Hour = "HH:mm"
-            textSize = 54f; setTextColor(pal.onSurface); typeface = Fonts.display; includeFontPadding = false
-        })
-        clockCol.addView(TextClock(ctx).apply {
+            textSize = 14f; setTextColor(pal.onSurface); typeface = Fonts.display; includeFontPadding = false
+        }
+        val date = TextClock(ctx).apply {
             format24Hour = "EEE d MMM"; format12Hour = "EEE d MMM"
-            textSize = 15f; setTextColor(pal.onSurfaceVariant); typeface = Fonts.regular
-            setPadding(ctx.dpi(2f), ctx.dpi(6f), 0, 0)
-        })
-        header.addView(clockCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            textSize = 14f; setTextColor(pal.onSurface); typeface = Fonts.medium; includeFontPadding = false
+        }
         val status = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        netIcon = SymbolView(ctx, Sym.WIFI, pal.onSurface, 18f)
-        status.addView(netIcon, LinearLayout.LayoutParams(ctx.dpi(22f), ctx.dpi(22f)).apply { marginEnd = ctx.dpi(6f) })
+        netIcon = SymbolView(ctx, Sym.WIFI, pal.onSurface, 16f)
+        status.addView(netIcon, LinearLayout.LayoutParams(ctx.dpi(20f), ctx.dpi(20f)).apply { marginEnd = ctx.dpi(6f) })
         battery = BatteryPill(ctx, pal)
-        status.addView(battery, LinearLayout.LayoutParams(ctx.dpi(34f), ctx.dpi(18f)))
-        header.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = ctx.dpi(1f)
-        })
-        top.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = ctx.dpi(8f)
-        })
+        status.addView(battery, LinearLayout.LayoutParams(ctx.dpi(30f), ctx.dpi(16f)))
+        fun abs(w: Int, h: Int, g: Int = Gravity.TOP or Gravity.START) = FrameLayout.LayoutParams(w, h, g)
+        top.addView(clock, abs(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = pad })
+        top.addView(date, abs(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = pad })
+        top.addView(status, abs(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { rightMargin = pad })
+        hdrClock = clock; hdrDate = date; hdrStatus = status
 
-        // Brightness sits above the tiles on Pixel 10
+        // Brightness: only in expanded quick settings, under the header (qs_brightness_margin_top 8 dp)
         val sl = BrightnessSlider(ctx, pal)
         sl.onFirstTouch = { if (Settings.System.canWrite(ctx)) true else { askWriteSettings(); false } }
         sl.onChange = { linear, _ -> writeBrightness(linear) }
         sl.onLong = { openBrightnessSheet() }
         slider = sl
-        // qs_brightness_margin_top 8 dp / qs_brightness_margin_bottom 16 dp; 52 dp = thumb height
-        top.addView(sl, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply {
-            topMargin = ctx.dpi(8f); bottomMargin = ctx.dpi(16f)
-        })
+        top.addView(sl, abs(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(52f)).apply { leftMargin = pad; rightMargin = pad })
 
-        // Tiles: two pages, swipe sideways like Pixel
+        // Tiles: pages of four rows; the collapsed shade (QQS) shows the first two rows
         makeTiles(pal)
         val gap = ctx.dpi(8f)
         val tileH = ctx.dpi(72f)
@@ -951,7 +964,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }
         val ids = tileLayout.map { it.first }.filter { it in tiles }
         val rows = TileCatalog.rows(ids) { tiles.getValue(it).wide }.map { row(it) }
-        val pages = rows.chunked(3).map { pageRows ->
+        val pages = rows.chunked(4).map { pageRows ->
             LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 pageRows.forEachIndexed { i, r ->
@@ -961,12 +974,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }.ifEmpty { listOf(LinearLayout(ctx)) }
         val pager = TilePager(ctx, pal, pages)
         tilePager = pager
-        // Everything but the first row only shows once quick settings are pulled open.
-        val laterViews = rows.drop(1).filter { r -> pages.firstOrNull()?.indexOfChild(r) ?: -1 >= 0 } + pages.drop(1)
+        val laterViews = rows.take(4).drop(2) + pages.drop(1)
+        qqsRows = rows.size.coerceAtMost(2)
 
-        // Footer: page dots on the left, settings and power on the right
+        // Footer: active-apps chip on the left; edit, settings and power on the right
         val footer = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        // Pixel's "N apps are active" chip (apps running in the foreground)
         val chip = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(ctx.dpi(14f), 0, ctx.dpi(10f), 0)
@@ -996,13 +1008,12 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             setOnClickListener { close(); main.postDelayed({ ShadeService.instance?.powerMenu() }, 300) }
         }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginStart = ctx.dpi(10f) })
 
-        val qs = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        // Media player sits on top of the tiles when quick settings are expanded (Pixel 10).
+        // Media: under the QQS rows when collapsed, between brightness and tiles when expanded
         val mh = FrameLayout(ctx).apply { visibility = View.GONE }
         qsMedia = mh
-        qs.addView(mh, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(176f)).apply {
-            bottomMargin = ctx.dpi(12f)
-        })
+        top.addView(mh, abs(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(176f)).apply { leftMargin = pad; rightMargin = pad })
+
+        val qs = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         qs.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         qs.addView(pager.dots.apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(6f)).apply {
             topMargin = ctx.dpi(12f)
@@ -1012,8 +1023,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         })
         qsBlock = qs
         topBlock = top
-        top.addView(qs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        expandOnly.clear(); expandOnly += laterViews + footer + pager.dots
+        top.addView(qs, abs(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = pad; rightMargin = pad })
+        expandOnly.clear(); expandOnly += laterViews + footer + pager.dots + sl
 
         // Notification panel: starts under the first tile row, slides down when QS expands
         val panel = LinearLayout(ctx).apply {
@@ -1052,19 +1063,29 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         panel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
             topMargin = ctx.dpi(16f)
         })
-        val actions = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(pill(ctx, pal, "Hantera") {
-            startSettings(Intent(if (Build.VERSION.SDK_INT >= 32) Settings.ACTION_ALL_APPS_NOTIFICATION_SETTINGS else "android.settings.NOTIFICATION_SETTINGS"))
-        })
-        actions.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f))
+        // Pixel footer: history button, wide "Clear all", notification settings button
+        val actions = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val roundBtn = { sym: String, onClick: () -> Unit -> SymbolView(ctx, sym, pal.onSurface, 20f).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(pal.card) }
+            setOnClickListener { onClick() }
+        } }
+        val notifSettings = Intent(if (Build.VERSION.SDK_INT >= 32) Settings.ACTION_ALL_APPS_NOTIFICATION_SETTINGS else "android.settings.NOTIFICATION_SETTINGS")
+        actions.addView(roundBtn(Sym.HISTORY) {
+            val h = Intent("android.settings.NOTIFICATION_HISTORY")
+            startSettings(if (h.resolveActivity(ctx.packageManager) != null) h else notifSettings)
+        }, LinearLayout.LayoutParams(ctx.dpi(44f), ctx.dpi(44f)))
         clearAllPill = pill(ctx, pal, "Rensa allt") { list.clearAll() }
-        actions.addView(clearAllPill)
+        actions.addView(clearAllPill, LinearLayout.LayoutParams(0, ctx.dpi(44f), 1f).apply {
+            marginStart = ctx.dpi(8f); marginEnd = ctx.dpi(8f)
+        })
+        actions.addView(roundBtn(Sym.NOTIFICATIONS) { startSettings(notifSettings) }, LinearLayout.LayoutParams(ctx.dpi(44f), ctx.dpi(44f)))
         panel.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dpi(8f)
         })
         notifPanel = panel
 
-        content.addView(top, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        content.addView(top, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
         content.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
 
         geoTileH = tileH
@@ -1080,19 +1101,40 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
     // ---- Quick settings expansion (second pull) -------------------------------------------
 
-    private val expandDistance: Float get() = (fullQsH - collapsedQsH).coerceAtLeast(1).toFloat()
+    private val expandDistance: Float get() = geo.panelTravel.toFloat()
+
+    private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
     private fun applyExpansion(e: Float) {
         expansion = e
         val c = e.coerceIn(0f, 1f)
         val qs = qsBlock ?: return
-        val extra = expandDistance * e
-        // With a media player above the tiles, the collapsed view starts below it; as QS expand,
-        // the block slides down so the player appears on top.
-        clip.set(0, 0, qs.width.coerceAtLeast(1), (collapsedQsH + extra).toInt().coerceAtLeast(1))
+        val sb = ctx.statusBarHeight().toFloat()
+        // Header: clock grows 2.57x from the status bar row (anchored start), date drops below it.
+        hdrClock?.let { cl ->
+            val h = cl.measuredHeight.toFloat()
+            val s = lerp(1f, 2.57f, c)
+            cl.pivotX = 0f; cl.pivotY = h / 2f
+            cl.scaleX = s; cl.scaleY = s
+            val dateRowC = geo.hdrBottom - ctx.dp(10f)
+            val bigCenter = dateRowC - ctx.dp(10f) - ctx.dp(16f) - h * 2.57f / 2f
+            cl.translationY = lerp(sb / 2f, bigCenter, c) - h / 2f
+            hdrDate?.let { d ->
+                d.translationX = lerp(cl.measuredWidth + ctx.dp(5f), 0f, c)
+                d.translationY = lerp(sb / 2f, dateRowC, c) - d.measuredHeight / 2f
+            }
+            hdrStatus?.let { st -> st.translationY = lerp(sb / 2f, dateRowC, c) - st.measuredHeight / 2f }
+        }
+        slider?.let {
+            it.translationY = geo.sliderE - ctx.dp(16f) * (1f - c)
+            it.visibility = if (c < 0.02f) View.INVISIBLE else View.VISIBLE
+        }
+        qsMedia?.translationY = lerp(geo.mediaC.toFloat(), geo.mediaE.toFloat(), c)
+        qs.translationY = lerp(geo.qqsTop.toFloat(), geo.qsE.toFloat(), c)
+        clip.set(0, 0, qs.width.coerceAtLeast(1), lerp(collapsedQsH.toFloat(), fullQsH.toFloat(), c).toInt().coerceAtLeast(1))
         qs.clipBounds = clip
         notifPanel?.let {
-            it.translationY = extra
+            it.translationY = geo.panelTravel * e
             it.alpha = 1f - (c * 1.4f).coerceAtMost(1f)
             it.visibility = if (c > 0.7f) View.INVISIBLE else View.VISIBLE
         }
