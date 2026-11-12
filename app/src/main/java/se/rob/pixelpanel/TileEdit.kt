@@ -212,7 +212,7 @@ class TileEditor(
 ) : FrameLayout(ctx) {
 
     private val gap = ctx.dpi(8f)
-    private val rowH = ctx.dpi(68f)
+    private val rowH = ctx.dpi(72f)
     private val active = TileGrid(ctx, gap, rowH).apply { reorderable = true }
     private val available = TileGrid(ctx, gap, rowH)
 

@@ -636,7 +636,8 @@ class NotifList(ctx: Context, private val pal: Palette, private val host: NotifH
             return
         }
         val media = entries.filter { it.n.isMedia() }
-        media.sortedByDescending { it.sbn.postTime }.take(2).forEach {
+        // The media player is drawn above the tiles (like Pixel), never in the notification list.
+        emptyList<NotifStore.Entry>().forEach {
             try {
                 addView(MediaCard(ctx, pal, it, host), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(176f)).apply {
                     bottomMargin = ctx.dpi(12f)

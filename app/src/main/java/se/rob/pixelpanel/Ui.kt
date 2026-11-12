@@ -60,11 +60,17 @@ class Palette(private val ctx: Context) {
     /** Notification cards and pills: near-white in light mode, raised in dark mode. */
     val card = if (night) t(4, 800) else t(4, 10)
     /** Inactive QS tile: translucent so the blurred backdrop shows through, like Pixel 10. */
-    val tileOff = if (night) t(4, 800).withAlpha(215) else t(4, 10).withAlpha(190)
+    // AOSP Android 16 QPR1 "surface effect" tokens (frameworks/base core/res/res/color[-night]/surface_effect_N_color.xml)
+    private fun lstar(c: Int, l: Double) = Hct.fromInt(c).let { Hct.from(it.hue, it.chroma, l).toInt() }
+    /** surface_effect_1: neutral1_500 at L*98 (night L*6), 54 % — inactive tiles, slider track. */
+    val effect1 = lstar(t(4, 500), if (night) 6.0 else 98.0).withAlpha((0.54f * 255).toInt())
+    /** surface_effect_2: accent1_0 at 32 % (night accent1_100 at 15 %) — inactive dual-target icon box. */
+    val effect2 = if (night) t(1, 100).withAlpha((0.15f * 255).toInt()) else t(1, 0).withAlpha((0.32f * 255).toInt())
+    val tileOff = effect1
     /** Inactive part of the brightness slider: secondary container, clearly visible over the blur. */
-    val sliderTrack = if (night) t(2, 800) else t(2, 100)
+    val sliderTrack = effect1
     /** Icon container inside an inactive wide tile. */
-    val tileIconOff = if (night) t(5, 700).withAlpha(200) else t(5, 100).withAlpha(220)
+    val tileIconOff = effect2
     val surfaceContainer = if (night) t(4, 800) else t(4, 100)
     val surfaceContainerHigh = if (night) t(5, 800) else t(5, 100)
     val onSurface = if (night) t(4, 100) else t(4, 900)
