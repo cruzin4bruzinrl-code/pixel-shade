@@ -136,7 +136,8 @@ class ShadeService : AccessibilityService() {
     }
 
     private fun sizeStrip() {
-        val w = resources.displayMetrics.widthPixels
+        val w = try { getSystemService(WindowManager::class.java).currentWindowMetrics.bounds.width() }
+            catch (_: Exception) { resources.displayMetrics.widthPixels }
         stripLp.width = if (Prefs.samsungCorner(this)) (w * 0.8f).toInt() else w
         stripLp.height = statusBarHeight() + dpi(4f)
     }
@@ -349,8 +350,15 @@ class ShadeService : AccessibilityService() {
         if (diff and (android.content.pm.ActivityInfo.CONFIG_UI_MODE or android.content.pm.ActivityInfo.CONFIG_ORIENTATION or
                 android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE or android.content.pm.ActivityInfo.CONFIG_DENSITY) != 0
         ) {
-            if (::shade.isInitialized) shade.rebuild()
-            if (::volume.isInitialized) volume.recolor()
+            val rotated = diff and (android.content.pm.ActivityInfo.CONFIG_ORIENTATION or android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE) != 0
+            if (::shade.isInitialized) {
+                if (rotated) {
+                    // Window metrics settle a moment after the config change: lay out again after that.
+                    shade.onRotated()
+                    mainHandler.postDelayed({ shade.onRotated(); updateStrip() }, 400)
+                } else shade.rebuild()
+            }
+            if (::volume.isInitialized) { volume.dismiss(); volume.recolor() }
         }
     }
 

@@ -69,7 +69,7 @@ object PixelHome {
         "Allmänt → Ikonform: Cirkel",
         "Allmänt → Teckensnitt: Google Sans Flex",
         "Allmänt → Färg: Systemfärg (följer Pixel-färgerna)",
-        "Hemskärm → Rutnät: 4 × 5",
+        "Hemskärm → Rutnät: 4 × 5, docka med 4 ikoner",
         "Hemskärm → Vid en blick (At a Glance): På",
         "Docka → 4 ikoner, sökfält i dockan: Google, form Piller",
         "Applåda → Sökfält överst, 4 kolumner, inga etiketter dolda",
@@ -97,7 +97,11 @@ object PixelHome {
             if (lawnchair(a) == null) play(a, "app.lawnchair.play") else makeDefault(a) { toast(a, it) }
         }
         items += Row("Lawnchair-inställningar", { "Rutnät, ikoner, mappar, applåda" }) { openLawnchairSettings(a) }
-        items += Category("Ställ in Lawnchair som Pixel 10")
+        items += Category("Gör Lawnchair till Pixel 10 automatiskt")
+        items += Row("1. Skapa en säkerhetskopia i Lawnchair", { "Lawnchair-inställningar → Säkerhetskopiera och återställ → Skapa" }) { openLawnchairSettings(a) }
+        items += Row("2. Gör kopian till Pixel 10", { "Välj kopian – en ny fil med Pixel 10-inställningar sparas bredvid, din layout behålls" }) { a.pixelifyLawnchair() }
+        items += Row("3. Återställ den nya filen i Lawnchair", { "Säkerhetskopiera och återställ → Återställ → \"Lawnchair Pixel 10\"" }) { openLawnchairSettings(a) }
+        items += Category("Det här ställs in")
         checklist.forEach { c -> items += Row(c.substringAfter("→ ").ifBlank { c }, { c.substringBefore(" →") }) { openLawnchairSettings(a) } }
         items += Category("Pixel 10:s appar")
         googleApps.forEach { g ->

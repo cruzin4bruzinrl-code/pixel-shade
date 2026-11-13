@@ -144,6 +144,13 @@ class PixelSettingsActivity : Activity() {
         }
     }
 
+    private var lawnchairIn: android.net.Uri? = null
+    /** Pick the user's own Lawnchair backup; LawnchairPixel writes a Pixel 10 copy of it. */
+    fun pixelifyLawnchair() {
+        ShadeService.allowSamsungSettings()
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 51)
+    }
+
     private var ringType = 0
     fun pickRingtone(type: Int) {
         ringType = type
@@ -159,6 +166,19 @@ class PixelSettingsActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 51 && resultCode == RESULT_OK) {
+            lawnchairIn = data?.data ?: return
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/zip").putExtra(Intent.EXTRA_TITLE, "Lawnchair Pixel 10.lawnchairbackup"), 52)
+            return
+        }
+        if (requestCode == 52 && resultCode == RESULT_OK) {
+            val inUri = lawnchairIn ?: return; val outUri = data?.data ?: return
+            val msg = try { LawnchairPixel.convert(this, inUri, outUri) } catch (t: Throwable) { "Det gick inte: ${t.message}" }
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            if (msg.startsWith("Klart")) PixelHome.openLawnchairSettings(this)
+            return
+        }
         if (requestCode == 42 && resultCode == RESULT_OK && data != null) {
             val uri = data.getParcelableExtra(android.media.RingtoneManager.EXTRA_RINGTONE_PICKED_URI, android.net.Uri::class.java)
             try { android.media.RingtoneManager.setActualDefaultRingtoneUri(this, ringType, uri) } catch (_: Exception) { }

@@ -308,6 +308,24 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private val height: Float
         get() = screenHeight().toFloat()
 
+    /** Landscape: like Pixel, the shade stays a phone-width column (max 600 dp) centred on screen. */
+    fun contentWidth(): Int {
+        val sw = try { wm.currentWindowMetrics.bounds.width() } catch (_: Exception) { ctx.resources.displayMetrics.widthPixels }
+        return minOf(sw, ctx.dpi(600f))
+    }
+
+    /** Rotation: drop everything instantly and lay out again for the new screen size. */
+    fun onRotated() {
+        spring.cancel()
+        if (progress > 0f || isOpen || shown) { setProgress(0f); settled(0f) }
+        hasBackdrop = false
+        rebuildPending = false
+        root.removeView(content)
+        content = FrameLayout(ctx)
+        tiles.clear()
+        build()
+    }
+
     fun screenHeight(): Int = try { wm.currentWindowMetrics.bounds.height() }
         catch (_: Exception) { ctx.resources.displayMetrics.heightPixels }
 
@@ -444,7 +462,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
      */
     private fun relayoutGeometry() {
         val top = topBlock ?: return; val qs = qsBlock ?: return; val panel = notifPanel ?: return
-        val sw = try { wm.currentWindowMetrics.bounds.width() } catch (_: Exception) { ctx.resources.displayMetrics.widthPixels }
+        val sw = contentWidth()
         val wSpec = View.MeasureSpec.makeMeasureSpec(sw, View.MeasureSpec.EXACTLY)
         val any = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         qs.measure(View.MeasureSpec.makeMeasureSpec(sw - ctx.dpi(32f), View.MeasureSpec.EXACTLY), any)
@@ -1113,7 +1131,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         mediaH = 0
         relayoutGeometry()
 
-        root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, screenHeight(), Gravity.TOP))
+        root.addView(content, FrameLayout.LayoutParams(contentWidth(), screenHeight(), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         content.translationY = -10000f
         scrim.alpha = 0f
         applyScrimColor()
