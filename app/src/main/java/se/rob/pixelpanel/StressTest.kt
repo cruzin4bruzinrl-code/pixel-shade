@@ -69,7 +69,8 @@ object StressTest {
         val h = bounds?.height() ?: svc.resources.displayMetrics.heightPixels
         val d = svc.resources.displayMetrics.density
         val home = "am start -a android.intent.action.MAIN -c android.intent.category.HOME"
-        val settings = "am start -a android.settings.SETTINGS"
+        val settings = "am start -a android.settings.WIFI_SETTINGS"
+        val settingsHome = "am start -a android.settings.SETTINGS"
 
         step { done ->
             info("Pixelpanel v${BuildConfig.VERSION_CODE} · ${Build.MODEL} · Android ${Build.VERSION.RELEASE}")
@@ -208,7 +209,32 @@ object StressTest {
             done()
         }
 
-        // 6. Colours must not have changed during the whole run.
+        // 6. One UI's Settings app opens as Pixel Settings; deep links and Back don't loop.
+        sh(home); pause(1200)
+        sh(settingsHome); pause(2200)
+        step { done ->
+            val fg = svc.foreground()
+            if (!Prefs.pixelSettings(svc)) info("Pixel-inställningar avstängt – hoppar över")
+            else if (fg == svc.packageName) ok("Inställningar öppnas som Pixel-inställningar")
+            else fail("Inställningar öppnades som One UI ($fg, ${ShadeService.lastSettingsClass})")
+            done()
+        }
+        sh("input keyevent KEYCODE_BACK"); pause(1800)
+        step { done ->
+            val fg = svc.foreground()
+            if (fg == svc.packageName || fg == "com.android.settings") fail("Tillbaka från Inställningar fastnade ($fg)")
+            else ok("Tillbaka från Inställningar går till hemskärmen")
+            done()
+        }
+        sh(settings); pause(2000)
+        step { done ->
+            val fg = svc.foreground()
+            if (fg == "com.android.settings") ok("djuplänk (Wi-Fi) går till One UI-sidan") else warn("djuplänk (Wi-Fi) hamnade i $fg")
+            done()
+        }
+        sh(home); pause(800)
+
+        // 7. Colours must not have changed during the whole run.
         step { done ->
             if (recolors > 0) fail("färgerna byttes $recolors gång(er) under testet") else ok("färgerna stabila under hela testet")
             done()

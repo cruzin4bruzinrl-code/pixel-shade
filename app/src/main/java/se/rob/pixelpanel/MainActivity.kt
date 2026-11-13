@@ -152,6 +152,10 @@ class MainActivity : Activity() {
             }
             c.addView(row)
             c.addView(switch("Pixels volympanel", Prefs.pixelVolume(this)) { on -> Prefs.setPixelVolume(this, on) })
+            c.addView(switch("Pixels Inställningar", Prefs.pixelSettings(this)) { on -> Prefs.setPixelSettings(this, on) })
+            c.addView(button("Öppna Pixels Inställningar", filled = false) {
+                startActivity(Intent(this, PixelSettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            })
         }
 
         // 1. Service

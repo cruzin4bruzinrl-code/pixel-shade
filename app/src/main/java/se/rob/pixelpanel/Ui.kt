@@ -134,6 +134,10 @@ object Prefs {
     fun pixelVolume(ctx: Context) = sp(ctx).getBoolean("pixelVolume", true)
     fun setPixelVolume(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("pixelVolume", v).apply()
 
+    /** Show Pixel Settings when One UI's Settings app is opened. */
+    fun pixelSettings(ctx: Context) = sp(ctx).getBoolean("pixelSettings", true)
+    fun setPixelSettings(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("pixelSettings", v).apply()
+
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
 }

@@ -29,6 +29,11 @@ class ShadeService : AccessibilityService() {
     companion object {
         @Volatile var instance: ShadeService? = null
             private set
+        @Volatile private var allowSettingsUntil = 0L
+        /** The next One UI Settings screen (a deep link from Pixel Settings) is let through. */
+        fun allowSamsungSettings() { allowSettingsUntil = android.os.SystemClock.uptimeMillis() + 4000 }
+        @Volatile var lastSettingsClass: String? = null
+        @Volatile var redirects = 0
 
         /** Pixelpanel is off (e.g. bank mode): open Samsung's own panel instead. */
         @android.annotation.SuppressLint("WrongConstant")
@@ -240,6 +245,24 @@ class ShadeService : AccessibilityService() {
         }
     } catch (_: Exception) { false }
 
+    private var lastRedirect = 0L
+    private val settingsHomes = setOf(
+        "com.android.settings.Settings", "com.android.settings.homepage.SettingsHomepageActivity",
+        "com.android.settings.SettingsActivity", "com.samsung.android.settings.homepage.SettingsHomepageActivity")
+
+    /** One UI's Settings home screen came up (launcher icon, shade gear…): show Pixel Settings instead. */
+    private fun maybeRedirectSettings(cls: String?) {
+        lastSettingsClass = cls
+        val now = android.os.SystemClock.uptimeMillis()
+        if (cls == null || cls !in settingsHomes || !Prefs.pixelSettings(this) || Prefs.bankSuspended(this)) return
+        if (now < allowSettingsUntil || now - lastRedirect < 1500) return
+        lastRedirect = now; redirects++
+        try {
+            startActivity(Intent(this, PixelSettingsActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        } catch (_: Exception) { }
+    }
+
     fun samsungShadeVisible() = samsungShadeShowing()
     fun foreground() = lastPkg
     fun keyFilterActive(): Boolean = serviceInfo?.let {
@@ -311,6 +334,7 @@ class ShadeService : AccessibilityService() {
         }
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
+        if (pkg == "com.android.settings") maybeRedirectSettings(event.className?.toString())
         // Watchdog: make sure the pull-down strip is still there and touchable after every app switch.
         if (!::wm.isInitialized || instance == null) return
         strip?.let { if (!it.isAttachedToWindow) try { wm.addView(it, stripLp) } catch (_: Exception) { } }
