@@ -168,7 +168,7 @@ class PixelSettingsActivity : Activity() {
 }
 
 /** Expressive SettingsLib colour roles derived from the shade palette. */
-class SColors(ctx: Context, pal: Palette) {
+class SColors(ctx: Context, private val pal: Palette) {
     private fun n(l: Double) = Hct.fromInt(pal.surface).let { Hct.from(it.hue, it.chroma.coerceAtMost(6.0), l).toInt() }
     val night = pal.night
     val bg = n(if (night) 12.0 else 94.0)            // surfaceContainer (window background)
@@ -360,18 +360,18 @@ class PageView(val a: PixelSettingsActivity, val title: String?, val items: List
             }
             v.addView(iv, LinearLayout.LayoutParams(a.dpi(40f), a.dpi(40f)).apply { marginEnd = a.dpi(16f) })
         }
-        val text = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+        val textCol = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
         val title = TextView(a).apply {
             text = r.title; textSize = 16f; typeface = Fonts.regular; setTextColor(sc.onSurface)
             setLineSpacing(0f, 1.1f)
         }
-        text.addView(title)
+        textCol.addView(title)
         val summary = TextView(a).apply {
             textSize = 14f; typeface = Fonts.regular; setTextColor(sc.onVariant); maxLines = 4
             setPadding(0, a.dpi(2f), 0, 0)
         }
-        text.addView(summary)
-        v.addView(text, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        textCol.addView(summary)
+        v.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         var sw: M3Switch? = null
         r.toggle?.let { t ->
             if (r.onClick != null) {
@@ -390,6 +390,7 @@ class PageView(val a: PixelSettingsActivity, val title: String?, val items: List
             summary.text = s ?: ""
             summary.visibility = if (s.isNullOrEmpty()) View.GONE else View.VISIBLE
             sw?.setChecked(r.toggle!!.get(), true)
+            Unit
         }
         refresh()
         a.onRefresh(refresh)
