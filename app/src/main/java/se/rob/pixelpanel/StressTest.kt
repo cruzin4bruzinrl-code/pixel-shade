@@ -88,15 +88,20 @@ object StressTest {
                 step { done ->
                     val t0 = SystemClock.uptimeMillis()
                     var samsungSeen = false
+                    val downs0 = ShadeService.stripDowns
+                    var maxProg = 0f
                     Shell.run("input swipe $x 2 $x ${(h * 0.6f).toInt()} 220")
                     poll(2200, 50, {
                         if (svc.samsungShadeVisible()) samsungSeen = true
+                        maxProg = maxOf(maxProg, shade.progress)
                         shade.isOpen && shade.progress >= 0.99f
                     }) { opened ->
                         val ms = SystemClock.uptimeMillis() - t0
                         val name = "drag ner $xl över $label"
                         when {
-                            !opened -> fail("$name: Pixelpanelen öppnades inte" + if (samsungSeen) " (One UI-panelen kom i stället)" else "")
+                            !opened -> fail("$name: Pixelpanelen öppnades inte" + (if (samsungSeen) " (One UI-panelen kom i stället)" else "") +
+                                " · beröringar på remsan: ${ShadeService.stripDowns - downs0} · max ${"%.2f".format(maxProg)} · ${svc.stripInfo()}" +
+                                " · förgrund ${svc.foreground()} · ${svc.systemWindowTitles()}")
                             samsungSeen -> fail("$name: One UI-panelen syntes samtidigt")
                             else -> ok("$name (${ms} ms)")
                         }
@@ -148,41 +153,39 @@ object StressTest {
         }
         pause(900)
 
-        // 4. Volume keys.
+        // 4. Volume keys. Injected key events may bypass the accessibility key filter, so the real
+        // test asks for a physical press and watches what appears on screen.
         sh(home); pause(1200)
         val am = svc.getSystemService(AudioManager::class.java)
-        var before = 0; var keys = 0
-        step { done -> before = am.getStreamVolume(AudioManager.STREAM_MUSIC); keys = keySeen; done() }
-        sh("input keyevent KEYCODE_VOLUME_UP")
+        var before = 0
+        step { done -> before = am.getStreamVolume(AudioManager.STREAM_MUSIC); done() }
         step { done ->
+            val keys = keySeen
+            val titles = LinkedHashSet<String>()
             var samsungSeen = false
-            poll(600, 40, { if (svc.samsungVolumeShowing()) samsungSeen = true; false }) {
-                val after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-                val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                when {
-                    keySeen == keys -> fail("volym upp: knappen nådde inte Pixelpanelen")
-                    samsungSeen -> fail("volym upp: Samsungs volymruta syntes")
-                    !svc.volume.isShowing -> fail("volym upp: Pixels volympanel visades inte")
-                    after != before + 1 && before < max -> fail("volym upp: mediavolymen ändrades inte ($before → $after)")
-                    else -> ok("volym upp visar Pixels volympanel ($before → $after av $max)")
-                }
-                done()
-            }
-        }
-        sh("input keyevent KEYCODE_VOLUME_DOWN")
-        pause(400)
-        step { done ->
-            val now = am.getStreamVolume(AudioManager.STREAM_MUSIC)
-            if (now != before) fail("volym ner: tillbaka till $now, väntat $before") else ok("volym ner återställer ($now)")
-            done()
-        }
-        step { done ->
-            var samsungSeen = false
-            val cmd = (1..6).joinToString("; ") { "input keyevent KEYCODE_VOLUME_${if (it % 2 == 0) "DOWN" else "UP"}" }
-            Shell.run(cmd)
-            poll(1800, 40, { if (svc.samsungVolumeShowing()) samsungSeen = true; false }) {
-                if (samsungSeen) fail("snabba volymtryck: Samsungs volymruta syntes") else ok("6 snabba volymtryck utan Samsungs ruta")
-                done()
+            Toast.makeText(svc, "Tryck på VOLYM UPP en gång nu", Toast.LENGTH_LONG).show()
+            try { svc.getSystemService(android.os.Vibrator::class.java)?.vibrate(
+                android.os.VibrationEffect.createOneShot(250, android.os.VibrationEffect.DEFAULT_AMPLITUDE)) } catch (_: Exception) { }
+            poll(9000, 40, {
+                if (svc.samsungVolumeShowing()) samsungSeen = true
+                titles += svc.systemWindowTitles()
+                keySeen != keys && SystemClock.uptimeMillis() > 0 && svc.volume.isShowing
+            }) { got ->
+                // keep watching a moment to catch a late Samsung dialog
+                main.postDelayed({
+                    if (svc.samsungVolumeShowing()) samsungSeen = true
+                    titles += svc.systemWindowTitles()
+                    val after = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    when {
+                        keySeen == keys && after != before -> fail("fysisk volym upp: gick förbi Pixelpanelen till One UI ($before → $after)")
+                        keySeen == keys -> warn("fysisk volym upp: ingen knapptryckning registrerades (tryckte du?)")
+                        samsungSeen -> fail("fysisk volym upp: Samsungs volymruta syntes också")
+                        !got -> fail("fysisk volym upp: Pixels volympanel visades inte")
+                        else -> ok("fysisk volym upp visar Pixels volympanel ($before → $after)")
+                    }
+                    info("systemfönster under volymtestet: $titles")
+                    done()
+                }, 700)
             }
         }
         pause(3600)

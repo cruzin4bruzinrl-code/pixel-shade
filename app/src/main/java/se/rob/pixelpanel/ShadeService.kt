@@ -34,6 +34,7 @@ class ShadeService : AccessibilityService() {
         fun allowSamsungSettings() { allowSettingsUntil = android.os.SystemClock.uptimeMillis() + 4000 }
         @Volatile var lastSettingsClass: String? = null
         @Volatile var redirects = 0
+        @Volatile var stripDowns = 0
 
         /** Pixelpanel is off (e.g. bank mode): open Samsung's own panel instead. */
         @android.annotation.SuppressLint("WrongConstant")
@@ -254,7 +255,12 @@ class ShadeService : AccessibilityService() {
     private fun maybeRedirectSettings(cls: String?) {
         lastSettingsClass = cls
         val now = android.os.SystemClock.uptimeMillis()
-        if (cls == null || cls !in settingsHomes || !Prefs.pixelSettings(this) || Prefs.bankSuspended(this)) return
+        if (cls == null || !Prefs.pixelSettings(this) || Prefs.bankSuspended(this)) return
+        // The home screen class, or any Settings screen opened from the launcher / our shade
+        // (One UI resumes the last sub-page when the icon is tapped). Deep links from other apps pass.
+        val prev = lastPkg
+        val fromHome = prev == homePkg || prev == packageName
+        if (cls !in settingsHomes && !(fromHome && cls.startsWith("com.android.settings"))) return
         if (now < allowSettingsUntil || now - lastRedirect < 1500) return
         lastRedirect = now; redirects++
         try {
@@ -262,6 +268,18 @@ class ShadeService : AccessibilityService() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         } catch (_: Exception) { }
     }
+
+    fun stripInfo(): String {
+        val v = strip ?: return "ingen remsa"
+        val touchable = stripLp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE == 0
+        return "remsa ${if (v.isAttachedToWindow) "på plats" else "BORTA"}, ${if (touchable) "tryckbar" else "EJ tryckbar"}, " +
+            "${stripLp.width}×${stripLp.height} px, låst=$locked"
+    }
+    fun systemWindowTitles(): Set<String> = try {
+        windows.filter { it.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION &&
+            it.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY }
+            .mapNotNull { it.title?.toString() }.toSet()
+    } catch (_: Exception) { emptySet() }
 
     fun samsungShadeVisible() = samsungShadeShowing()
     fun foreground() = lastPkg
@@ -401,6 +419,7 @@ class ShadeService : AccessibilityService() {
         override fun onTouch(v: View, e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    stripDowns++
                     downY = e.rawY; dragging = false
                     vt?.recycle(); vt = VelocityTracker.obtain(); vt?.addMovement(e)
                     captureBackdrop()
