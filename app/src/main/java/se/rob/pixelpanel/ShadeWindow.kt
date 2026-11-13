@@ -1179,7 +1179,10 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         qs.translationY = lerp(geo.qqsTop.toFloat(), geo.qsE.toFloat(), c) - sc
         // Only the tile grid is clipped (QQS rows -> full page); media sits below it and never overlaps.
         tilePager?.let { pg ->
-            clip.set(0, 0, pg.width.coerceAtLeast(1), lerp(collapsedQsH.toFloat(), pg.height.toFloat(), c).toInt().coerceAtLeast(1))
+            // Width unbounded: this can run before the pager is laid out (rebuild/rotation), and a
+            // clip made from width 0 would leave the tiles 1 px wide until the next expansion.
+            val fullH = if (pg.height > 0) pg.height.toFloat() else fullQsH.toFloat()
+            clip.set(0, 0, 100_000, lerp(collapsedQsH.toFloat(), fullH, c).toInt().coerceAtLeast(1))
             pg.clipBounds = clip
         }
         notifPanel?.let {

@@ -30,6 +30,8 @@ object LawnchairPixel {
 
     /** Legacy SharedPreferences (PreferenceManager) values: Pixel 10's 4 x 5 grid, 4-icon dock. */
     private val xmlInts = listOf("pref_workspaceColumns" to 4, "pref_workspaceRows" to 5, "pref_hotseatColumns" to 4)
+    /** Pixel 10 ships with themed icons off: full-colour icons in the circle shape. */
+    private val xmlBools = listOf("themed_icons" to false, "drawer_themed_icons" to false, "prefs_wrapAdaptive" to true)
 
     fun convert(ctx: Context, input: Uri, output: Uri): String {
         val entries = LinkedHashMap<String, ByteArray>()
@@ -68,6 +70,11 @@ object LawnchairPixel {
         for ((k, v) in xmlInts) {
             val re = Regex("<int name=\"${Regex.escape(k)}\" value=\"-?\\d+\" ?/>")
             val tag = "<int name=\"$k\" value=\"$v\" />"
+            s = if (re.containsMatchIn(s)) s.replace(re, tag) else s.replace("</map>", "    $tag\n</map>")
+        }
+        for ((k, v) in xmlBools) {
+            val re = Regex("<boolean name=\"${Regex.escape(k)}\" value=\"(true|false)\" ?/>")
+            val tag = "<boolean name=\"$k\" value=\"$v\" />"
             s = if (re.containsMatchIn(s)) s.replace(re, tag) else s.replace("</map>", "    $tag\n</map>")
         }
         return s

@@ -67,6 +67,7 @@ object PixelHome {
     /** Pixel 10 Launcher3 defaults, to set in Lawnchair. */
     val checklist = listOf(
         "Allmänt → Ikonform: Cirkel",
+        "Allmänt → Temaikoner: Av (Pixel 10 har fullfärgsikoner från början)",
         "Allmänt → Teckensnitt: Google Sans Flex",
         "Allmänt → Färg: Systemfärg (följer Pixel-färgerna)",
         "Hemskärm → Rutnät: 4 × 5, docka med 4 ikoner",
