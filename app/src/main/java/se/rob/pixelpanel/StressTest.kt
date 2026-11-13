@@ -22,6 +22,7 @@ import java.util.Locale
 object StressTest {
     @Volatile var recolors = 0
     @Volatile var keySeen = 0
+    @Volatile var pilfered = 0
     var running = false
         private set
 
@@ -54,7 +55,7 @@ object StressTest {
         val svc = ShadeService.instance
         if (svc == null) { Toast.makeText(ctx, "Tjänsten är inte igång", Toast.LENGTH_LONG).show(); return }
         if (!Shell.granted()) { Toast.makeText(ctx, "Stresstestet behöver Shizuku", Toast.LENGTH_LONG).show(); return }
-        running = true; lines.clear(); fails = 0; warns = 0; recolors = 0
+        running = true; lines.clear(); fails = 0; warns = 0; recolors = 0; pilfered = 0
         started = SystemClock.uptimeMillis()
         steps = ArrayDeque()
         Toast.makeText(ctx, "Stresstest startar – rör inte telefonen (ca 1,5 min)", Toast.LENGTH_LONG).show()
@@ -82,7 +83,8 @@ object StressTest {
         }
 
         // 1. Pull-down from the status bar, at the left, middle and right, over home and over an app.
-        for ((label, launch) in listOf("hemskärm" to home, "Inställningar" to settings)) {
+        val appCmd = "monkey -p com.google.android.youtube -c android.intent.category.LAUNCHER 1 || monkey -p com.android.vending -c android.intent.category.LAUNCHER 1"
+        for ((label, launch) in listOf("hemskärm" to home, "Inställningar" to settings, "en app (YouTube/Play)" to appCmd)) {
             sh(launch); pause(1500)
             for ((xl, xf) in listOf("vänster" to 0.08f, "mitten" to 0.5f, "höger" to 0.92f)) {
                 val x = (w * xf).toInt()
@@ -241,6 +243,7 @@ object StressTest {
 
         // 7. Colours must not have changed during the whole run.
         step { done ->
+            if (pilfered > 0) info("One UI tog över draget $pilfered gång(er) – Pixelpanelen tog tillbaka det")
             if (recolors > 0) warn("färgerna byttes $recolors gång(er) under testet (ny bakgrund sedan förra gången?)") else ok("färgerna stabila under hela testet")
             done()
         }

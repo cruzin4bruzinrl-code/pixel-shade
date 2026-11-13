@@ -33,13 +33,15 @@ class Palette(private val ctx: Context) {
     private val palettes: Array<TonalPalette>? = if (seed == 0) null else {
         val hue = Hct.fromInt(seed).hue
         val grey = Hct.fromInt(seed).chroma < 8.0
-        arrayOf(
-            TonalPalette.fromHueAndChroma(hue, if (grey) 4.0 else 36.0),
-            TonalPalette.fromHueAndChroma(hue, if (grey) 4.0 else 16.0),
-            TonalPalette.fromHueAndChroma((hue + 60.0) % 360.0, if (grey) 4.0 else 24.0),
-            TonalPalette.fromHueAndChroma(hue, if (grey) 2.0 else 6.0),
-            TonalPalette.fromHueAndChroma(hue, if (grey) 3.0 else 8.0),
-        )
+        fun tp(h: Double, c: Double) = TonalPalette.fromHueAndChroma(((h % 360.0) + 360.0) % 360.0, if (grey) minOf(c, 4.0) else c)
+        // Android monet styles as offered by Pixel's Wallpaper & style picker (ThemePicker ColorProvider)
+        when (Prefs.themeStyle(ctx)) {
+            1 -> arrayOf(tp(hue, 12.0), tp(hue, 8.0), tp(hue, 16.0), tp(hue, 2.0), tp(hue, 2.0))                        // SPRITZ (neutral)
+            2 -> arrayOf(tp(hue, maxOf(Hct.fromInt(seed).chroma, 48.0)), tp(hue + 15, 24.0), tp(hue + 30, 32.0),
+                tp(hue, 10.0), tp(hue, 12.0))                                                                          // VIBRANT
+            3 -> arrayOf(tp(hue + 240, 40.0), tp(hue + 45, 24.0), tp(hue + 120, 32.0), tp(hue + 15, 8.0), tp(hue + 15, 12.0)) // EXPRESSIVE
+            else -> arrayOf(tp(hue, 36.0), tp(hue, 16.0), tp(hue + 60, 24.0), tp(hue, 6.0), tp(hue, 8.0))               // TONAL_SPOT
+        }
     }
 
     /** group 1..5 = accent1, accent2, accent3, neutral1, neutral2; step = system palette step (0..1000). */
@@ -138,6 +140,13 @@ object Prefs {
     fun pixelSettings(ctx: Context) = sp(ctx).getBoolean("pixelSettings", true)
     fun setPixelSettings(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("pixelSettings", v).apply()
 
+    /** Monet style: 0 TONAL_SPOT (Dynamisk), 1 SPRITZ (Neutral), 2 VIBRANT (Livfull), 3 EXPRESSIVE (Uttrycksfull). */
+    fun themeStyle(ctx: Context) = sp(ctx).getInt("themeStyle", 0)
+    fun setThemeStyle(ctx: Context, v: Int) = sp(ctx).edit().putInt("themeStyle", v).apply()
+    /** Also write the colours into Android's own palette (Gboard, Lawnchair, Material You apps). */
+    fun systemColors(ctx: Context) = sp(ctx).getBoolean("systemColors", false)
+    fun setSystemColors(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("systemColors", v).apply()
+
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
 }
@@ -173,6 +182,12 @@ object WallSeed {
         worker.execute {
             try {
                 val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false) ?: return@execute
+                try {
+                    val tw = 360; val th = soft.height * tw / soft.width
+                    java.io.File(ctx.filesDir, "home.jpg").outputStream().use {
+                        android.graphics.Bitmap.createScaledBitmap(soft, tw, th, true).compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it)
+                    }
+                } catch (_: Exception) { }
                 val w = 112; val h = (soft.height * w / soft.width).coerceAtLeast(1)
                 val small = android.graphics.Bitmap.createScaledBitmap(soft, w, h, true)
                 // Skip the status bar strip and the dock area, which are mostly icons.

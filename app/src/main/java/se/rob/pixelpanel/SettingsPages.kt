@@ -63,25 +63,16 @@ object SettingsPages {
         homeRow(a, "Nätverk och internet", R.drawable.pset_network, "blueV", { networkSummary(a) }) { open(a, "network") },
         homeRow(a, "Anslutna enheter", R.drawable.pset_connected_device, "blueV", { "Bluetooth och parkoppling" }) { open(a, "connected") },
         Category(null),
-        homeRow(a, "Appar", R.drawable.pset_apps, "blue", { "Senaste apparna, standardappar" }) {
-            a.openSystem(i(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS), i(Settings.ACTION_APPLICATION_SETTINGS))
-        },
-        homeRow(a, "Aviseringar", R.drawable.pset_notification, "pink", { "Aviseringshistorik och konversationer" }) {
-            a.openSystem(i("android.settings.NOTIFICATION_SETTINGS"), i("android.settings.ALL_APPS_NOTIFICATION_SETTINGS"))
-        },
+        homeRow(a, "Appar", R.drawable.pset_apps, "blue", { "Senaste apparna, standardappar" }) { open(a, "apps") },
+        homeRow(a, "Aviseringar", R.drawable.pset_notification, "pink", { "Aviseringshistorik och konversationer" }) { open(a, "notifs") },
         homeRow(a, "Ljud och vibration", R.drawable.pset_sound, "pink", { "Volym, haptik, Stör ej" }) { open(a, "sound") },
         homeRow(a, "Lägen", R.drawable.pset_modes, "pink", { if (NotifStore.dndOn()) "Stör ej är på" else "Stör ej, läggdags och mer" }) {
             a.openSystem(i("android.settings.ZEN_MODE_SETTINGS"), i(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS))
         },
         homeRow(a, "Skärm och tryck", R.drawable.pset_display, "orange", { "Mörkt tema, teckenstorlek, ljusstyrka" }) { open(a, "display") },
-        homeRow(a, "Bakgrund och stil", R.drawable.pset_wallpaper, "orange", { "Färger, ikoner med tema, apprutnät" }) {
-            a.openSystem(i("com.samsung.intent.action.WALLPAPER_SETTING"), Intent.createChooser(i(Intent.ACTION_SET_WALLPAPER), "Bakgrund"),
-                i(Settings.ACTION_DISPLAY_SETTINGS))
-        },
+        homeRow(a, "Bakgrund och stil", R.drawable.pset_wallpaper, "orange", { "Färger, ikoner med tema, apprutnät" }) { open(a, "style") },
         Category(null),
-        homeRow(a, "Lagring", R.drawable.pset_storage, "yellow", { storageSummary() }) {
-            a.openSystem(i(Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
-        },
+        homeRow(a, "Lagring", R.drawable.pset_storage, "yellow", { storageSummary() }) { open(a, "storage") },
         homeRow(a, "Batteri", R.drawable.pset_battery, "green", { batterySummary(a) }) { open(a, "battery") },
         homeRow(a, "System", R.drawable.pset_system_dashboard, "grey", { "Språk, rörelser, tid och säkerhetskopiering" }) { open(a, "system") },
         homeRow(a, "Om telefonen", R.drawable.pset_about, "grey", { deviceName(a) }) { open(a, "about") },
@@ -128,9 +119,15 @@ object SettingsPages {
         "system" -> system(a)
         "location" -> location(a)
         "datasaver" -> dataSaver(a)
+        "style" -> ThemePicker.spec(a)
+        "apps" -> SubPages.apps(a)
+        "allapps" -> SubPages.allApps(a)
+        "notifs" -> SubPages.notifications(a)
+        "appnotifs" -> SubPages.appNotifs(a)
+        "storage" -> SubPages.storage(a)
         else -> null
     }
-    val allIds = listOf("network", "connected", "connprefs", "sound", "display", "battery", "saver", "batteryinfo", "about", "system", "location", "datasaver")
+    val allIds = listOf("network", "connected", "connprefs", "sound", "display", "battery", "saver", "batteryinfo", "about", "system", "location", "datasaver", "style", "apps", "notifs", "storage")
 
     // ---- settings access ------------------------------------------------------------------------
 

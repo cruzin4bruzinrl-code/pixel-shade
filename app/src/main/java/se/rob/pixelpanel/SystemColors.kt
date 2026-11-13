@@ -22,6 +22,8 @@ object SystemColors {
         return if (s == 0 || s == 1) null else s
     }
 
+    private val STYLES = arrayOf("TONAL_SPOT", "SPRITZ", "VIBRANT", "EXPRESSIVE")
+
     fun apply(ctx: Context, done: (String) -> Unit) {
         val seed = seed(ctx) ?: return done("Ingen Pixel-färg ännu – visa hemskärmen en stund först.")
         val hex = String.format("%08X", seed or 0xFF000000.toInt())
@@ -31,7 +33,7 @@ object SystemColors {
             val json = "{\"android.theme.customization.color_source\":\"preset\"," +
                 "\"android.theme.customization.system_palette\":\"$hex\"," +
                 "\"android.theme.customization.accent_color\":\"$hex\"," +
-                "\"android.theme.customization.theme_style\":\"TONAL_SPOT\"," +
+                "\"android.theme.customization.theme_style\":\"${STYLES[Prefs.themeStyle(ctx).coerceIn(0, 3)]}\"," +
                 "\"_applied_timestamp\":${System.currentTimeMillis()}}"
             Shell.run("settings put secure $KEY '$json'") { ok ->
                 if (!ok) return@run done("Kunde inte skriva inställningen (Shizuku?).")

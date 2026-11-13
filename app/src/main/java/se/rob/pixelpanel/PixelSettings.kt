@@ -351,7 +351,8 @@ class PageView(val a: PixelSettingsActivity, val title: String?, val items: List
         }
         r.icon?.let { ic ->
             val iv = ImageView(a).apply {
-                scaleType = ImageView.ScaleType.CENTER
+                // 24 dp symbols sit centred in the 40 dp frame; app icons fill it
+                scaleType = if (ic.intrinsicWidth > a.dpi(30f)) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER
                 if (r.iconBg != null) {
                     // AdaptiveIconShapeDrawable (circle) with a 24 dp foreground inset 8 dp
                     background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(r.iconBg) }

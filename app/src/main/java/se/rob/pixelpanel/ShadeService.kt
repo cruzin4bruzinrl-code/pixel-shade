@@ -143,6 +143,7 @@ class ShadeService : AccessibilityService() {
 
     /** Strip is touchable only when capture is on, the shade is closed and the phone is unlocked. */
     @Volatile var stripTouching = false
+    private fun ctx_fling() = resources.displayMetrics.density * 2500f
 
     fun updateStrip() {
         val v = strip ?: return
@@ -462,7 +463,15 @@ class ShadeService : AccessibilityService() {
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     stripTouching = false; stripCancels++
-                    if (dragging) shade.release(0f)
+                    // One UI's own top-edge gesture monitor pilfered the touch (inside apps): it is
+                    // about to pull down its panel. Put that away and finish opening ours instead.
+                    val movedDown = e.rawY - downY > -1f
+                    if (movedDown && e.eventTime - e.downTime < 1500) {
+                        performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+                        mainHandler.postDelayed({ performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE) }, 250)
+                        if (dragging) shade.release(ctx_fling()) else openShade()
+                        StressTest.pilfered++
+                    } else if (dragging) shade.release(0f)
                     dragging = false
                 }
             }
