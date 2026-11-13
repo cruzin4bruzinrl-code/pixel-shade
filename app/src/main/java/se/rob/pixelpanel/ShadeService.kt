@@ -35,6 +35,8 @@ class ShadeService : AccessibilityService() {
         @Volatile var lastSettingsClass: String? = null
         @Volatile var redirects = 0
         @Volatile var stripDowns = 0
+        @Volatile var stripCancels = 0
+        @Volatile var lastSettingsPrev: String? = null
 
         /** Pixelpanel is off (e.g. bank mode): open Samsung's own panel instead. */
         @android.annotation.SuppressLint("WrongConstant")
@@ -140,8 +142,12 @@ class ShadeService : AccessibilityService() {
     }
 
     /** Strip is touchable only when capture is on, the shade is closed and the phone is unlocked. */
+    @Volatile var stripTouching = false
+
     fun updateStrip() {
         val v = strip ?: return
+        // Changing the strip window while a finger is on it makes Android cancel the drag.
+        if (stripTouching) return
         val active = Prefs.captureEnabled(this) && !locked && !(::shade.isInitialized && shade.isOpen)
         val flags = stripLp.flags
         stripLp.flags = if (active) flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
@@ -263,6 +269,7 @@ class ShadeService : AccessibilityService() {
         // The home screen class, or any Settings screen opened from the launcher / our shade
         // (One UI resumes the last sub-page when the icon is tapped). Deep links from other apps pass.
         val prev = lastPkg
+        lastSettingsPrev = prev
         val fromHome = prev == homePkg
         if (cls !in settingsHomes && !(fromHome && cls.startsWith("com.android.settings"))) return
         if (now < allowSettingsUntil || now - lastRedirect < 1500) return
@@ -423,7 +430,7 @@ class ShadeService : AccessibilityService() {
         override fun onTouch(v: View, e: MotionEvent): Boolean {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    stripDowns++
+                    stripDowns++; stripTouching = true
                     downY = e.rawY; dragging = false
                     vt?.recycle(); vt = VelocityTracker.obtain(); vt?.addMovement(e)
                     captureBackdrop()
@@ -439,6 +446,7 @@ class ShadeService : AccessibilityService() {
                     if (dragging) shade.dragTo(e.rawY - downY)
                 }
                 MotionEvent.ACTION_UP -> {
+                    stripTouching = false
                     vt?.addMovement(e)
                     vt?.computeCurrentVelocity(1000)
                     if (dragging) {
@@ -453,6 +461,7 @@ class ShadeService : AccessibilityService() {
                     vt?.recycle(); vt = null
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    stripTouching = false; stripCancels++
                     if (dragging) shade.release(0f)
                     dragging = false
                 }

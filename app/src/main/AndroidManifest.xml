@@ -54,13 +54,26 @@
         <!-- "Öppna panelen": for launcher gestures (Lawnchair swipe down) -->
         <activity
             android:name=".PixelSettingsActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="Inställningar"
             android:launchMode="singleTask"
             android:taskAffinity="se.rob.pixelpanel.settings"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.DeviceDefault.DayNight" />
+
+        <activity-alias
+            android:name=".SettingsLauncher"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_settings"
+            android:label="Inställningar"
+            android:targetActivity=".PixelSettingsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".OpenShadeActivity"
