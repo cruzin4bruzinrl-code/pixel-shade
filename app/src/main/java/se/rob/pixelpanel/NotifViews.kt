@@ -469,6 +469,10 @@ class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStor
     private val play = SymbolView(ctx, Sym.PLAY_ARROW, Color.BLACK, 28f)
     private var accent = pal.primary
     private var lastArt: Bitmap? = null
+    private var bottomRow: View? = null
+    /** 0 = expanded (184 dp, with seek row), 1 = collapsed QQS player (128 dp, no seek row). */
+    var compact = 0f
+        private set
 
     private val seek = object : View(ctx) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
@@ -594,10 +598,6 @@ class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStor
         bind()
     }
 
-    private var bottomRow: View? = null
-    /** 0 = expanded (184 dp, with seek row), 1 = collapsed QQS player (128 dp, no seek row). */
-    var compact = 0f
-        private set
     fun setCompact(f: Float) {
         compact = f
         bottomRow?.let { b ->
