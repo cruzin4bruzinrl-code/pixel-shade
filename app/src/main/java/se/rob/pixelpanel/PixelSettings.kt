@@ -72,6 +72,7 @@ class PixelSettingsActivity : Activity() {
         }
         setContentView(host)
         val start = intent.getStringExtra("page")
+            ?: if (intent.action == Intent.ACTION_SET_WALLPAPER) "style" else null
         push(SettingsPages.home(this), animate = false)
         start?.let { id -> SettingsPages.byId(this, id)?.let { push(it, animate = false) } }
     }

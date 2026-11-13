@@ -18,6 +18,19 @@
 
     <!-- App names and icons for notification cards -->
     <queries>
+        <package android:name="app.lawnchair" />
+        <package android:name="app.lawnchair.play" />
+        <package android:name="app.lawnchair.nightly" />
+        <package android:name="com.google.android.dialer" />
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.google.android.contacts" />
+        <package android:name="com.google.android.apps.photos" />
+        <package android:name="com.google.android.deskclock" />
+        <package android:name="com.google.android.calendar" />
+        <package android:name="com.google.android.calculator" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.google.android.apps.nbu.files" />
+        <package android:name="com.google.android.keep" />
         <package android:name="com.google.android.inputmethod.latin" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -72,6 +85,18 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".WallpaperStyle"
+            android:exported="true"
+            android:icon="@mipmap/ic_settings"
+            android:label="Bakgrund och stil"
+            android:targetActivity=".PixelSettingsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SET_WALLPAPER" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity-alias>
 

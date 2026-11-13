@@ -48,11 +48,13 @@ object ThemePicker {
                 else SystemColors.restore(a) { Toast.makeText(a, it, Toast.LENGTH_SHORT).show() }
             })),
         Category("Hemskärm (Lawnchair)"),
+        Row("Pixel-hemskärm", { PixelHome.summary(a) }) { SettingsPages.open(a, "home") },
         Row("Temaikoner", { "Appikoner i bakgrundens färger" }) { lawnchair(a) },
         Row("Form och layout", { "Ikonform och apprutnät" }) { lawnchair(a) },
         Row("Byt bakgrund", null) {
             a.openSystem(Intent("com.samsung.intent.action.WALLPAPER_SETTING"),
-                Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Bakgrund"))
+                Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Bakgrund").putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS,
+                    arrayOf(android.content.ComponentName(a, "se.rob.pixelpanel.WallpaperStyle"))))
         },
     ))
 

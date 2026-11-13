@@ -120,6 +120,7 @@ object SettingsPages {
         "location" -> location(a)
         "datasaver" -> dataSaver(a)
         "style" -> ThemePicker.spec(a)
+        "home" -> PixelHome.page(a)
         "apps" -> SubPages.apps(a)
         "allapps" -> SubPages.allApps(a)
         "notifs" -> SubPages.notifications(a)
