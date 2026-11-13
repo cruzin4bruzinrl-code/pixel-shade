@@ -47,6 +47,11 @@ object ThemePicker {
                 if (on) SystemColors.apply(a) { Toast.makeText(a, it, Toast.LENGTH_LONG).show() }
                 else SystemColors.restore(a) { Toast.makeText(a, it, Toast.LENGTH_SHORT).show() }
             })),
+        Row("Samsungs färgpalett", { "Behövs en gång: välj valfri färg där, så kan Pixelpanel ta över Samsungs palett" }) {
+            a.openSystem(Intent("com.samsung.intent.action.WALLPAPER_SETTING"),
+                Intent().setClassName("com.android.settings", "com.android.settings.Settings\$WallpaperSettingsActivity"),
+                Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS))
+        },
         Category("Hemskärm (Lawnchair)"),
         Row("Pixel-hemskärm", { PixelHome.summary(a) }) { SettingsPages.open(a, "home") },
         Row("Temaikoner", { "Appikoner i bakgrundens färger" }) { lawnchair(a) },
