@@ -1202,6 +1202,10 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val qs = qsBlock ?: return listOf("ingen QS-vy")
         val pg = tilePager ?: return listOf("ingen rutsida")
         val tilesBottom = qs.translationY + (pg.clipBounds?.bottom ?: pg.height)
+        if (tiles.isEmpty()) out += "inga snabbinställningsrutor"
+        if (pg.width <= 0 || pg.height <= 0) out += "rutorna har ingen storlek (${pg.width}×${pg.height})"
+        pg.clipBounds?.let { cb -> if (cb.width() < pg.width) out += "rutorna beskurna till ${cb.width()} px bredd" }
+        if (content.width > ctx.dpi(601f)) out += "panelen bredare än 600 dp i liggande läge"
         qsMedia?.takeIf { it.visibility == View.VISIBLE }?.let { m ->
             if (m.translationY < tilesBottom - 1) out += "media överlappar rutor (${(tilesBottom - m.translationY).toInt()} px) vid e=${"%.2f".format(expansion)}"
         }

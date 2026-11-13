@@ -39,6 +39,7 @@ import com.google.android.material.color.utilities.Hct
  * collapsing to 22 sp, back button in a 40 dp surfaceContainerHighest circle).
  */
 class PixelSettingsActivity : Activity() {
+    companion object { @Volatile var shownPage: String? = null; @Volatile var shownAt = 0L }
 
     lateinit var pal: Palette
     lateinit var sc: SColors
@@ -75,6 +76,13 @@ class PixelSettingsActivity : Activity() {
             ?: if (intent.action == Intent.ACTION_SET_WALLPAPER) "style" else null
         push(SettingsPages.home(this), animate = false)
         start?.let { id -> SettingsPages.byId(this, id)?.let { push(it, animate = false) } }
+        shownPage = start ?: "home"; shownAt = android.os.SystemClock.uptimeMillis()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.hasExtra("page") || intent.action == Intent.ACTION_SET_WALLPAPER) recreate()
     }
 
     override fun onResume() {

@@ -127,7 +127,7 @@ class MainActivity : Activity() {
         // Stress test: drives the phone itself and reports what really showed up on screen
         card("Stresstest") { c ->
             c.addView(text("Telefonen sveper, trycker på volymknapparna och öppnar panelen i olika appar " +
-                "av sig själv (ca 1,5 min, rör den inte). Efteråt syns rapporten här – kopiera den till Claude.",
+                "av sig själv (ca 3 min, rör den inte). Efteråt syns rapporten här – kopiera den till Claude.",
                 13f, pal.onSurfaceVariant).apply { setPadding(0, 0, 0, dpi(8f)) })
             val report = try { StressTest.reportFile(this).takeIf { it.exists() }?.readText() } catch (_: Exception) { null }
             report?.let { r ->

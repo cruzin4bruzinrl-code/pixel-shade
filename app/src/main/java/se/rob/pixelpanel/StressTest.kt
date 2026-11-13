@@ -58,12 +58,15 @@ object StressTest {
         running = true; lines.clear(); fails = 0; warns = 0; recolors = 0; pilfered = 0
         started = SystemClock.uptimeMillis()
         steps = ArrayDeque()
-        Toast.makeText(ctx, "Stresstest startar – rör inte telefonen (ca 1,5 min)", Toast.LENGTH_LONG).show()
+        Toast.makeText(ctx, "Stresstest startar – rör inte telefonen (ca 3 min)", Toast.LENGTH_LONG).show()
         plan(svc)
         main.postDelayed({ next() }, 2500)
     }
 
+    private var crashBefore: String? = null
+
     private fun plan(svc: ShadeService) {
+        crashBefore = CrashLog.read(svc)
         val shade = svc.shade
         val bounds = try { svc.getSystemService(android.view.WindowManager::class.java).currentWindowMetrics.bounds } catch (_: Exception) { null }
         val w = bounds?.width() ?: svc.resources.displayMetrics.widthPixels
@@ -240,6 +243,132 @@ object StressTest {
             done()
         }
         sh(home); pause(800)
+
+        // 7. Pixel Settings: every page opens and nothing crashes.
+        val pages = SettingsPages.allIds + listOf("home", "allapps", "appnotifs")
+        for (id in pages) {
+            sh("am start -n ${svc.packageName}/.PixelSettingsActivity --es page $id")
+            step { done ->
+                val t0 = SystemClock.uptimeMillis()
+                poll(4000, 80, { PixelSettingsActivity.shownPage == id && PixelSettingsActivity.shownAt >= t0 - 3000 &&
+                    svc.foreground() == svc.packageName }) { okd ->
+                    if (okd) ok("Inställningar → sidan \"$id\" öppnas") else fail("Inställningar → sidan \"$id\" öppnades inte (visar ${PixelSettingsActivity.shownPage}, förgrund ${svc.foreground()})")
+                    done()
+                }
+            }
+        }
+        sh(home); pause(1200)
+
+        // 8. Theme picker: the four Pixel styles and basic colours give distinct palettes, shade still lays out.
+        var saved = Triple(0, 0, 0)
+        step { done ->
+            saved = Triple(Prefs.seedColor(svc), Prefs.themeStyle(svc), Prefs.wallChoice(svc))
+            val seed = SystemColors.seed(svc) ?: 0xFF1A73E8.toInt()
+            if (Prefs.seedColor(svc) == 0 && Prefs.wallSeeds(svc).isEmpty()) warn("temaväljaren: inga bakgrundsfärger inlärda än")
+            val prim = (0..3).map { st -> Prefs.setSeedColor(svc, seed); Prefs.setThemeStyle(svc, st); Palette(svc).primary }
+            if (prim.toSet().size == 4) ok("temaväljaren: Dynamisk, Neutral, Livfull och Uttrycksfull ger fyra olika färger")
+            else fail("temaväljaren: stilarna ger bara ${prim.toSet().size} olika primärfärger")
+            val presets = listOf(0xFF1A73E8.toInt(), 0xFF34A853.toInt(), 0xFFEA4335.toInt())
+            val off = presets.count { c ->
+                Prefs.setSeedColor(svc, c); Prefs.setThemeStyle(svc, 0)
+                val a = com.google.android.material.color.utilities.Hct.fromInt(Palette(svc).primary).hue
+                val b = com.google.android.material.color.utilities.Hct.fromInt(c).hue
+                kotlin.math.abs(a - b).let { kotlin.math.min(it, 360 - it) } > 30
+            }
+            if (off == 0) ok("temaväljaren: standardfärgerna slår igenom i panelen") else fail("temaväljaren: $off standardfärger slog inte igenom")
+            Prefs.setSeedColor(svc, 0xFF34A853.toInt()); Prefs.setThemeStyle(svc, 2)
+            svc.rebuildShade(); svc.openShade(); done()
+        }
+        pause(1000)
+        step { done ->
+            val d = shade.diagnostics(); d.forEach { fail("panel med ny färg: $it") }
+            if (d.isEmpty()) ok("panelen byggs om korrekt med ny färg och stil")
+            shade.close(); done()
+        }
+        pause(700)
+        step { done ->
+            Prefs.setSeedColor(svc, saved.first); Prefs.setThemeStyle(svc, saved.second); Prefs.setWallChoice(svc, saved.third)
+            svc.rebuildShade(); done()
+        }
+
+        // 9. Gboard and system colours (Gboard's "Dynamisk färg" uses Android's system palette).
+        step { done ->
+            val ime = try { android.provider.Settings.Secure.getString(svc.contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD) } catch (_: Exception) { null } ?: ""
+            if (ime.startsWith("com.google.android.inputmethod.latin")) ok("Gboard är tangentbordet") else warn("tangentbordet är inte Gboard ($ime)")
+            Shell.output("cmd overlay lookup android android:color/system_accent1_500") { out ->
+                val got = out?.let { Regex("#?([0-9a-fA-F]{8})").find(it) }?.groupValues?.get(1)?.toLongOrNull(16)?.toInt()
+                val seed = SystemColors.seed(svc)
+                if (got == null || seed == null) info("systempaletten kunde inte läsas (${out?.take(80)})")
+                else {
+                    val a = com.google.android.material.color.utilities.Hct.fromInt(got).hue
+                    val b = com.google.android.material.color.utilities.Hct.fromInt(seed).hue
+                    val dd = kotlin.math.abs(a - b).let { kotlin.math.min(it, 360 - it) }
+                    when {
+                        dd < 25 -> ok("systempaletten följer Pixel-färgen – Gboard får samma färger som panelen")
+                        Prefs.systemColors(svc) -> fail("One UI skrev över Pixel-färgen i systemet (system ${a.toInt()}°, Pixel ${b.toInt()}°)")
+                        else -> warn("Gboard använder Samsungs palett (system ${a.toInt()}°, Pixel ${b.toInt()}°) – slå på \"Använd färgerna i hela systemet\" i Bakgrund och stil")
+                    }
+                }
+                done()
+            }
+        }
+
+        // 10. Pixel home: Lawnchair and the Google apps.
+        step { done ->
+            val l = PixelHome.lawnchair(svc)
+            when {
+                l == null -> warn("Lawnchair är inte installerat")
+                PixelHome.currentHome(svc) == l -> ok("Lawnchair är hemskärmen")
+                else -> warn("Lawnchair är installerat men ${PixelHome.currentHome(svc)} är hemskärm")
+            }
+            val missing = PixelHome.googleApps.filter { !PixelHome.installed(svc, it.pkg) }.map { it.title }
+            if (missing.isEmpty()) ok("alla Pixel 10-appar är installerade") else warn("Pixel 10-appar som saknas: ${missing.joinToString()}")
+            done()
+        }
+        for ((role, pkg, name) in listOf(Triple("DIALER", "com.google.android.dialer", "Telefon"),
+                Triple("SMS", "com.google.android.apps.messaging", "Messages"), Triple("BROWSER", "com.android.chrome", "Chrome"))) {
+            step { done ->
+                Shell.output("cmd role get-role-holders --user 0 android.app.role.$role") { out ->
+                    if (out?.contains(pkg) == true) ok("Googles $name är standardapp") else warn("standardapp för ${role.lowercase()}: ${out?.trim()?.ifBlank { "ingen" }} (Pixel: $name)")
+                    done()
+                }
+            }
+        }
+
+        // 11. Rotation: landscape shade must still show its tiles and stay a phone-width column.
+        var rot = Pair(1, 0)
+        step { done ->
+            rot = Pair(try { android.provider.Settings.System.getInt(svc.contentResolver, "accelerometer_rotation") } catch (_: Exception) { 1 },
+                try { android.provider.Settings.System.getInt(svc.contentResolver, "user_rotation") } catch (_: Exception) { 0 })
+            done()
+        }
+        sh("settings put system accelerometer_rotation 0; settings put system user_rotation 1"); pause(2000)
+        step { done -> svc.openShade(); done() }
+        pause(1000)
+        step { done ->
+            val d = shade.diagnostics(); d.forEach { fail("liggande läge: $it") }
+            if (d.isEmpty()) ok("liggande läge: panelen med rutor ser rätt ut")
+            shade.close(); done()
+        }
+        pause(600)
+        step { done -> Shell.run("settings put system user_rotation ${rot.second}; settings put system accelerometer_rotation ${rot.first}") { done() } }
+        pause(2000)
+        step { done -> svc.openShade(); done() }
+        pause(1000)
+        step { done ->
+            val d = shade.diagnostics(); d.forEach { fail("tillbaka i stående: $it") }
+            if (d.isEmpty()) ok("tillbaka i stående: rutorna syns")
+            shade.close(); done()
+        }
+        pause(600)
+
+        // 12. Crashes during the whole run.
+        step { done ->
+            val now = CrashLog.read(svc)
+            if (now != null && now != crashBefore) fail("Pixelpanel kraschade under testet: " + now.lineSequence().take(2).joinToString(" "))
+            else ok("inga krascher under testet")
+            done()
+        }
 
         // 7. Colours must not have changed during the whole run.
         step { done ->
