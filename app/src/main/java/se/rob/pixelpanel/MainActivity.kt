@@ -96,6 +96,7 @@ class MainActivity : Activity() {
             }) else {
                 if (!active) row.addView(button("Använd Gboard", filled = true) {
                     if (!Shell.granted()) { Shell.requestPermission(); return@button }
+                    Prefs.setKeepGboard(this, true)
                     Shell.run("ime enable $ime; ime set $ime") { ok -> recreate() }
                 })
                 if (!active) row.addView(space(dpi(8f)))

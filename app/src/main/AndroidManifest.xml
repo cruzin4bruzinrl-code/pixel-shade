@@ -18,6 +18,7 @@
 
     <!-- App names and icons for notification cards -->
     <queries>
+        <package android:name="com.bankid.bus" />
         <package android:name="app.lawnchair" />
         <package android:name="app.lawnchair.play" />
         <package android:name="app.lawnchair.nightly" />

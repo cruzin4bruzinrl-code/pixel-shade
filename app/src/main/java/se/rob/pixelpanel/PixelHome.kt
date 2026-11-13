@@ -75,6 +75,7 @@ object PixelHome {
         "Docka → 4 ikoner, sökfält i dockan: Google, form Piller",
         "Applåda → Sökfält överst, 4 kolumner, inga etiketter dolda",
         "Mappar → Bakgrund följer tema, 3 kolumner",
+        "Gester → Svep nedåt: Öppna app → Öppna panelen (annars kommer One UI-panelen)",
         "Dölj Samsungs dubbletter: Applåda → Dolda appar",
     )
 

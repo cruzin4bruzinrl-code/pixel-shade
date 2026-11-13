@@ -96,6 +96,11 @@ class ShadeService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         mainHandler.postDelayed({ try { if (::shade.isInitialized) readSystemColours() } catch (_: Throwable) { } }, 3000)
+        try {
+            contentResolver.registerContentObserver(android.provider.Settings.Secure.getUriFor(
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD), false, imeObserver)
+            mainHandler.postDelayed({ checkIme() }, 3500)
+        } catch (_: Throwable) { }
         try { start() } catch (t: Throwable) {
             // Never crash-loop: record why and stay idle so Samsung's shade keeps working.
             CrashLog.write(this, "start", t)
@@ -325,7 +330,7 @@ class ShadeService : AccessibilityService() {
         performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
     }
 
-    /** True when Samsung's own notification panel / quick panel window is on screen. */
+    /** True when Samsung's own notification panel / quick panel window is on screen (window list). */
     private fun samsungShadeShowing(): Boolean = try {
         val km = getSystemService(android.app.KeyguardManager::class.java)
         val screenH = resources.displayMetrics.heightPixels
@@ -333,17 +338,49 @@ class ShadeService : AccessibilityService() {
         if (km?.isKeyguardLocked == true) false else windows.any { w ->
             val r = android.graphics.Rect().also { w.getBoundsInScreen(it) }
             val t = w.title?.toString()?.lowercase() ?: ""
+            // One UI's shade window has no title: any tall system window that isn't a bar or volume
             r.height() > screenH * 0.6f &&
             w.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM &&
-                ("shade" in t || "panel" in t || "notification" in t || "meddelande" in t || "avisering" in t) &&
-                !("volume" in t || "volym" in t || "navigation" in t || "status bar" in t || "statusfält" in t)
+                !("volume" in t || "volym" in t || "navigation" in t || "navigering" in t || "status" in t || "pixelpanel" in t)
         }
     } catch (_: Exception) { false }
 
-    private val swapSamsungShade = Runnable {
-        if (!samsungShadeShowing()) return@Runnable
+    /** Asks the window manager directly (through Shizuku) whether One UI's NotificationShade is visible. */
+    fun samsungShadeByShell(done: (Boolean) -> Unit) {
+        if (!Shell.granted()) return done(false)
+        Shell.output("dumpsys window visible | grep -ci 'NotificationShade'") { out ->
+            val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+            done(!locked && (out?.trim()?.toIntOrNull() ?: 0) > 0)
+        }
+    }
+
+    @Volatile var samsungSwaps = 0
+    private fun swapNow() {
+        samsungSwaps++
         performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
         mainHandler.postDelayed({ openShade() }, 180)
+    }
+
+    private val swapSamsungShade = Runnable {
+        if (samsungShadeShowing()) { swapNow(); return@Runnable }
+        samsungShadeByShell { visible ->
+            if (visible && !shade.isOpen && android.os.SystemClock.uptimeMillis() > allowSamsungUntil) swapNow()
+        }
+    }
+
+    // ---- keyboard guard ---------------------------------------------------------------------------
+    private val gboardIme = "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME"
+    @Volatile var imeRestores = 0
+    private val imeObserver = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) { checkIme() }
+    }
+    fun checkIme() {
+        val cur = try { android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD) } catch (_: Exception) { null } ?: return
+        if (!Prefs.hasKeepGboard(this) && cur.startsWith("com.google.android.inputmethod.latin")) Prefs.setKeepGboard(this, true)
+        if (!Prefs.keepGboard(this) || cur.startsWith("com.google.android.inputmethod.latin") || !Shell.granted()) return
+        // One UI put Samsung Keyboard back: switch to Gboard again.
+        imeRestores++
+        mainHandler.postDelayed({ Shell.run("ime enable $gboardIme; ime set $gboardIme") }, 600)
     }
 
     fun powerMenu() { performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG) }

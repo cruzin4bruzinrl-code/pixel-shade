@@ -26,6 +26,9 @@ object LawnchairPixel {
         "enable_smartspace" to true,              // "Vid en blick" at the top
         "show_icon_labels_on_home_screen" to true,
         "show_icon_labels_in_drawer" to true,
+        // Swipe down on the home screen: Lawnchair would open the system (One UI) shade – open ours.
+        "swipe_down_gesture_handler" to "{\"type\":\"openApp\",\"appName\":\"Öppna panelen\",\"target\":{\"type\":\"app\"," +
+            "\"key\":\"se.rob.pixelpanel/se.rob.pixelpanel.OpenShadeActivity#0\"}}",
     )
 
     /** Legacy SharedPreferences (PreferenceManager) values: Pixel 10's 4 x 5 grid, 4-icon dock. */

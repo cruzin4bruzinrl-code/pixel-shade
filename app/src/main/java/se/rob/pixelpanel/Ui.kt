@@ -147,6 +147,11 @@ object Prefs {
     fun systemColors(ctx: Context) = sp(ctx).getBoolean("systemColors", false)
     fun setSystemColors(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("systemColors", v).apply()
 
+    /** Keep Gboard as the keyboard: One UI switches back to Samsung Keyboard on its own. */
+    fun keepGboard(ctx: Context) = sp(ctx).getBoolean("keepGboard", false)
+    fun setKeepGboard(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("keepGboard", v).apply()
+    fun hasKeepGboard(ctx: Context) = sp(ctx).contains("keepGboard")
+
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
 }

@@ -128,18 +128,24 @@ object StressTest {
 
         // 2. Swipe down in the middle of the home screen (One UI Home opens Samsung's panel there).
         sh(home); pause(1500)
-        step { done ->
-            var samsungSeen = false
-            Shell.run("input swipe ${w / 2} ${(h * 0.3f).toInt()} ${w / 2} ${(h * 0.75f).toInt()} 250")
-            poll(2500, 60, { if (svc.samsungShadeVisible()) samsungSeen = true; false }) {
-                val name = "svep mitt på hemskärmen"
-                when {
-                    svc.samsungShadeVisible() -> fail("$name: One UI-panelen ligger kvar")
-                    shade.isOpen && samsungSeen -> warn("$name: One UI-panelen blinkade förbi innan Pixelpanelen tog över")
-                    shade.isOpen -> ok("$name öppnar Pixelpanelen")
-                    else -> ok("$name: ingen panel (svep nedåt är avstängt i One UI Home)")
-                }
-                done()
+        // Several heights, like a thumb would: Lawnchair's "swipe down" gesture opens the system shade.
+        for (yf in listOf(0.25f, 0.45f, 0.65f)) {
+            step { done ->
+                val swaps0 = svc.samsungSwaps
+                Shell.run("input swipe ${w / 2} ${(h * yf).toInt()} ${w / 2} ${(h * (yf + 0.3f)).toInt()} 250")
+                main.postDelayed({
+                    svc.samsungShadeByShell { visible ->
+                        val name = "svep nedåt mitt på hemskärmen (${(yf * 100).toInt()} %)"
+                        when {
+                            visible -> fail("$name: One UI-panelen öppnades och ligger kvar")
+                            svc.samsungSwaps > swaps0 && shade.isOpen -> warn("$name: One UI-panelen öppnades först – bytt till Pixelpanelen (ställ in Lawnchairs gest Svep nedåt → Öppna panelen)")
+                            shade.isOpen -> ok("$name öppnar Pixelpanelen")
+                            else -> ok("$name: ingen panel (gesten är avstängd)")
+                        }
+                        if (shade.isOpen) shade.close()
+                        main.postDelayed(done, 800)
+                    }
+                }, 2200)
             }
         }
         step { done -> shade.close(); done() }
@@ -319,6 +325,36 @@ object StressTest {
                 info("One UI:s färginställningar: " + (out?.replace("\n", " | ")?.take(2500) ?: "inget"))
                 info("bakgrundsfärger från systemet: " + (if (WallSeed.fromSystem) Prefs.wallSeeds(svc).joinToString { "#%06X".format(it and 0xFFFFFF) } else "inte lästa"))
                 done()
+            }
+        }
+
+        // Bank mode: BankID refuses to start next to a service that may read screen content.
+        step { done ->
+            val canRead = (svc.serviceInfo?.capabilities ?: 0) and android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_RETRIEVE_WINDOW_CONTENT != 0
+            if (canRead) fail("Pixelpanel kan läsa skärminnehåll – BankID vägrar då starta (slå av och på Pixelpanel under Tillgänglighet)")
+            else ok("Pixelpanel läser inte skärminnehåll – BankID tillåter den")
+            val bank = Prefs.bankApps(svc)
+            val bankid = listOf("com.bankid.bus").filter { PixelHome.installed(svc, it) }
+            when {
+                !Prefs.bankModeOn(svc) -> warn("bankläget är avstängt")
+                bankid.any { it !in bank } -> fail("BankID finns inte i bankläget")
+                else -> ok("bankläget är på (${bank.size} appar, BankID inräknat)")
+            }
+            done()
+        }
+
+        // Keyboard guard: One UI switching back to Samsung Keyboard must be undone.
+        step { done ->
+            val gb = "com.google.android.inputmethod.latin"
+            fun cur() = try { android.provider.Settings.Secure.getString(svc.contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD) } catch (_: Exception) { null } ?: ""
+            if (!PixelHome.installed(svc, gb)) { warn("Gboard är inte installerat"); return@step done() }
+            if (!Prefs.keepGboard(svc)) { warn("tangentbordsvakten är av (tryck \"Använd Gboard\" en gång)"); return@step done() }
+            Shell.run("ime set com.samsung.android.honeyboard/.service.HoneyBoardService") {
+                poll(5000, 200, { cur().startsWith(gb) }) { back ->
+                    if (back) ok("tangentbordsvakten: Samsung Keyboard byttes tillbaka till Gboard")
+                    else fail("tangentbordsvakten: Samsung Keyboard ligger kvar (${cur()})")
+                    done()
+                }
             }
         }
 
