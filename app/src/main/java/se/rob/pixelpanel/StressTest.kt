@@ -243,6 +243,7 @@ object StressTest {
 
         // 7. Colours must not have changed during the whole run.
         step { done ->
+            Shell.output("dumpsys wallpaper | grep -i -m6 'color'") { out -> if (!out.isNullOrBlank()) info("dumpsys wallpaper: " + out.replace("\n", " | ").take(600)) }
             if (pilfered > 0) info("One UI tog över draget $pilfered gång(er) – Pixelpanelen tog tillbaka det")
             if (recolors > 0) warn("färgerna byttes $recolors gång(er) under testet (ny bakgrund sedan förra gången?)") else ok("färgerna stabila under hela testet")
             done()

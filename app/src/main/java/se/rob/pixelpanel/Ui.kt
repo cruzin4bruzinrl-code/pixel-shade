@@ -209,7 +209,7 @@ object WallSeed {
                 // folder, the app drawer or a widget on screen can't make the colours flicker.
                 val confirmed = oldH == null || run {
                     if (pending != 0 && near(pending, seed)) pendingCount++ else { pending = seed; pendingCount = 1 }
-                    pendingCount >= 2
+                    pendingCount >= 3
                 }
                 if (!moved) { pending = 0; pendingCount = 0 }
                 if (moved && confirmed) {

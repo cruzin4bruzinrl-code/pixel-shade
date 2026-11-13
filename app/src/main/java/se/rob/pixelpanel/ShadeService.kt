@@ -169,9 +169,12 @@ class ShadeService : AccessibilityService() {
      * cross-window blur is off. Calls [then] when done (or failed).
      */
     private var lastColorCheck = 0L
+    /** Colours are only learned from screenshots with none of our own windows in them. */
+    private fun overlaysHidden() = ::shade.isInitialized && !shade.isOpen && shade.progress == 0f &&
+        !(::volume.isInitialized && volume.isShowing)
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val learnFromHome = Runnable {
-        if (lastPkg != homePkg || shade.isOpen) return@Runnable
+        if (lastPkg != homePkg || !overlaysHidden()) return@Runnable
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastShot < 400) return@Runnable
         lastShot = now; lastColorCheck = now
@@ -195,7 +198,7 @@ class ShadeService : AccessibilityService() {
         val now = android.os.SystemClock.uptimeMillis()
         // On the home screen the screenshot shows the wallpaper: learn its colours from it (Samsung
         // doesn't hand wallpaper colours to other apps).
-        val learnColours = lastPkg != null && lastPkg == homePkg && now - lastColorCheck > 8_000
+        val learnColours = lastPkg != null && lastPkg == homePkg && now - lastColorCheck > 8_000 && overlaysHidden()
         if (shade.blurSupported && !learnColours) { then?.invoke(); return }
         // Screenshots are rate limited: wait for the window instead of going without a backdrop.
         val wait = 400 - (now - lastShot)
