@@ -78,6 +78,36 @@ class MainActivity : Activity() {
             }
         }
 
+        // Stress test: drives the phone itself and reports what really showed up on screen
+        card("Stresstest") { c ->
+            c.addView(text("Telefonen sveper, trycker på volymknapparna och öppnar panelen i olika appar " +
+                "av sig själv (ca 1,5 min, rör den inte). Efteråt syns rapporten här – kopiera den till Claude.",
+                13f, pal.onSurfaceVariant).apply { setPadding(0, 0, 0, dpi(8f)) })
+            val report = try { StressTest.reportFile(this).takeIf { it.exists() }?.readText() } catch (_: Exception) { null }
+            report?.let { r ->
+                c.addView(text(r, 11f, pal.onSurface).apply {
+                    setTextIsSelectable(true); typeface = android.graphics.Typeface.MONOSPACE
+                    setPadding(0, 0, 0, dpi(8f))
+                })
+            }
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dpi(4f), 0, 0) }
+            row.addView(button("Kör stresstest", filled = true) { StressTest.start(this) })
+            report?.let { r ->
+                row.addView(space(dpi(8f)))
+                row.addView(button("Kopiera", filled = false) {
+                    getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Pixelpanel stresstest", r))
+                })
+                row.addView(space(dpi(8f)))
+                row.addView(button("Dela", filled = false) {
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
+                        .putExtra(Intent.EXTRA_TEXT, r), "Dela rapport"))
+                })
+            }
+            c.addView(row)
+            c.addView(switch("Pixels volympanel", Prefs.pixelVolume(this)) { on -> Prefs.setPixelVolume(this, on) })
+        }
+
         // 1. Service
         card("1 · Slå på tjänsten") {
             serviceStatus = text("", 15f, pal.onSurface)
@@ -333,6 +363,11 @@ class MainActivity : Activity() {
             rikka.shizuku.Shizuku.removeBinderReceivedListener(shizukuBinder)
         } catch (_: Throwable) { }
         super.onDestroy()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("showReport", false)) recreate()
     }
 
     override fun onResume() {

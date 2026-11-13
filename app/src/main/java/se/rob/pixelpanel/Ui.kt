@@ -76,6 +76,12 @@ class Palette(private val ctx: Context) {
     val onSurface = if (night) t(4, 100) else t(4, 900)
     val onSurfaceVariant = if (night) t(5, 200) else t(5, 700)
     val scrim = if (night) t(4, 1000) else t(4, 900)
+    /** M3 surfaceContainerHighest: neutral at L*90 (night L*22). Volume slider track, ringer buttons. */
+    val surfaceContainerHighest = lstar(t(4, 500), if (night) 22.0 else 90.0)
+    /** M3 onSecondaryContainer: accent2 tone 10 (night tone 90). Icon on the inactive slider track. */
+    val onSecondaryContainer = if (night) t(2, 100) else t(2, 900)
+    /** M3 surface for the volume dialog: neutral L*98 (night L*6). */
+    val surfaceSolid = lstar(t(4, 500), if (night) 6.0 else 98.0)
     val tertiary = if (night) t(3, 200) else t(3, 600)
     val secondary = if (night) t(2, 200) else t(2, 600)
 }
@@ -123,6 +129,10 @@ object Prefs {
     fun setHideIcon(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("hideIcon", v).apply()
     fun suggested(ctx: Context): Set<String> = sp(ctx).getStringSet("bankSuggested", null) ?: emptySet()
     fun addSuggested(ctx: Context, pkg: String) = sp(ctx).edit().putStringSet("bankSuggested", HashSet(suggested(ctx) + pkg)).apply()
+
+    /** Pixel volume panel instead of Samsung's when the volume keys are pressed. */
+    fun pixelVolume(ctx: Context) = sp(ctx).getBoolean("pixelVolume", true)
+    fun setPixelVolume(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("pixelVolume", v).apply()
 
     fun lastStats(ctx: Context) = sp(ctx).getString("lastStats", null)
     fun setLastStats(ctx: Context, v: String) = sp(ctx).edit().putString("lastStats", v).apply()
@@ -187,6 +197,7 @@ object WallSeed {
                     pending = 0; pendingCount = 0
                     Prefs.setWallSeed(ctx, seed)
                     cached = seed
+                    StressTest.recolors++
                     main.post { changed() }
                 }
             } catch (_: Throwable) { }

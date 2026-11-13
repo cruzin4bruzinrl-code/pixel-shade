@@ -52,7 +52,8 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
     val root = ShadeRoot(ctx)
     private val backdrop = ImageView(ctx).apply { scaleType = ImageView.ScaleType.FIT_XY }
-    private var hasBackdrop = false
+    var hasBackdrop = false
+        private set
     private val scrim = View(ctx)
     private var content = FrameLayout(ctx)
     private var diag: TextView? = null
@@ -307,7 +308,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
     private val height: Float
         get() = screenHeight().toFloat()
 
-    private fun screenHeight(): Int = try { wm.currentWindowMetrics.bounds.height() }
+    fun screenHeight(): Int = try { wm.currentWindowMetrics.bounds.height() }
         catch (_: Exception) { ctx.resources.displayMetrics.heightPixels }
 
     // ---- Gesture API used by the service's top strip --------------------------------
@@ -921,7 +922,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
 
     // ---- Layout -----------------------------------------------------------------------
 
-    private fun navBarHeight(): Int = try {
+    fun navBarHeight(): Int = try {
         wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.navigationBars()).bottom
     } catch (_: Exception) { 0 }
 
@@ -1165,6 +1166,32 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         expandOnly.forEach { it.alpha = a }
         tilePager?.swipeEnabled = c > 0.98f
         if (c < 0.02f) tilePager?.reset()
+    }
+
+    /** Layout self-check for the stress test, at the current expansion. Empty = all good. */
+    fun diagnostics(): List<String> {
+        val out = ArrayList<String>()
+        val qs = qsBlock ?: return listOf("ingen QS-vy")
+        val pg = tilePager ?: return listOf("ingen rutsida")
+        val tilesBottom = qs.translationY + (pg.clipBounds?.bottom ?: pg.height)
+        qsMedia?.takeIf { it.visibility == View.VISIBLE }?.let { m ->
+            if (m.translationY < tilesBottom - 1) out += "media överlappar rutor (${(tilesBottom - m.translationY).toInt()} px) vid e=${"%.2f".format(expansion)}"
+        }
+        val c = expansion.coerceIn(0f, 1f)
+        if (c > 0.99f) {
+            val bottom = qs.translationY + qs.height
+            val limit = screenHeight() - navBarHeight()
+            if (bottom > limit + 1 && qsScrollMax <= 0f) out += "knappraden utanför skärmen (${(bottom - limit).toInt()} px) utan rullning"
+            hdrDate?.let { d -> slider?.let { s ->
+                if (d.translationY + d.height > s.translationY + 1) out += "datum överlappar reglaget"
+            } }
+        }
+        if (c < 0.01f) notifPanel?.let { p ->
+            val qqsBottom = qs.translationY + collapsedQsH
+            if (panelTop < qqsBottom - 1) out += "notiser börjar under rutorna"
+        }
+        if (!blurSupported && !hasBackdrop && isOpen) out += "ingen frostad bakgrund (helvit)"
+        return out
     }
 
     fun expandTo(target: Float, velocity: Float = 0f) {

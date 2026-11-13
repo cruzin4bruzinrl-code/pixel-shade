@@ -44,7 +44,7 @@ class ShadeService : AccessibilityService() {
     private var lastPkg: String? = null
     private val quickExits = HashMap<String, Int>()
     private var lastPkgAt = 0L
-    private val homePkg by lazy {
+    val homePkg by lazy {
         packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
     }
     private val installReceiver = object : BroadcastReceiver() {
@@ -55,7 +55,8 @@ class ShadeService : AccessibilityService() {
     }
 
     private lateinit var wm: WindowManager
-    private lateinit var shade: ShadeWindow
+    lateinit var shade: ShadeWindow
+        private set
     private var strip: View? = null
     private val stripLp = WindowManager.LayoutParams(
         0, 0,
@@ -97,6 +98,7 @@ class ShadeService : AccessibilityService() {
         instance = this
         wm = getSystemService(WindowManager::class.java)
         shade = ShadeWindow(this, wm)
+        volume = VolumePanel(this, wm)
         shade.attach()
         shade.onStateChanged = { updateStrip() }
         addStrip()
@@ -167,7 +169,7 @@ class ShadeService : AccessibilityService() {
                 if (bmp != null) {
                     // A fresh shot of the home screen doubles as the frosted-glass backdrop.
                     if (!shade.blurSupported && !shade.isOpen) shade.setBackdrop(bmp)
-                    WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
+                    WallSeed.learn(this@ShadeService, bmp) { shade.recolor(); if (::volume.isInitialized) volume.recolor() }
                 }
             }
             override fun onFailure(errorCode: Int) {}
@@ -193,7 +195,7 @@ class ShadeService : AccessibilityService() {
                 if (!shade.blurSupported && bmp != null) shade.setBackdrop(bmp)
                 if (learnColours && bmp != null) {
                     lastColorCheck = now
-                    WallSeed.learn(this@ShadeService, bmp) { shade.recolor() }
+                    WallSeed.learn(this@ShadeService, bmp) { shade.recolor(); if (::volume.isInitialized) volume.recolor() }
                 }
                 then?.invoke()
             }
@@ -206,6 +208,47 @@ class ShadeService : AccessibilityService() {
             }
         })
     }
+
+    lateinit var volume: VolumePanel
+        private set
+
+    /**
+     * Volume keys: show the Pixel volume dialog instead of Samsung's. Left to the system while a
+     * call is ringing (keys silence the ringer), with the screen off, and in camera apps (shutter).
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent): Boolean {
+        val code = event.keyCode
+        if (code != android.view.KeyEvent.KEYCODE_VOLUME_UP && code != android.view.KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        if (!::volume.isInitialized || !Prefs.pixelVolume(this) || Prefs.bankSuspended(this)) return false
+        val am = getSystemService(android.media.AudioManager::class.java)
+        if (am.mode == android.media.AudioManager.MODE_RINGTONE) return false
+        if (getSystemService(android.os.PowerManager::class.java)?.isInteractive != true) return false
+        val fg = lastPkg ?: ""
+        if ("camera" in fg.lowercase()) return false
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+            volume.onVolumeKey(code == android.view.KeyEvent.KEYCODE_VOLUME_UP)
+            StressTest.keySeen++
+        }
+        return true
+    }
+
+    /** Samsung's own volume dialog on screen (for the stress test). */
+    fun samsungVolumeShowing(): Boolean = try {
+        windows.any { w ->
+            val t = w.title?.toString()?.lowercase() ?: ""
+            w.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM && ("volume" in t || "volym" in t)
+        }
+    } catch (_: Exception) { false }
+
+    fun samsungShadeVisible() = samsungShadeShowing()
+    fun foreground() = lastPkg
+    fun keyFilterActive(): Boolean = serviceInfo?.let {
+        it.flags and android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS != 0 &&
+            it.capabilities and android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_REQUEST_FILTER_KEY_EVENTS != 0
+    } ?: false
+    fun allWindowTitles(): String = try {
+        windows.joinToString(" | ") { "${it.type}:${it.title}" }
+    } catch (_: Exception) { "?" }
 
     fun rebuildShade() { if (::shade.isInitialized) shade.rebuild() }
 
@@ -251,6 +294,7 @@ class ShadeService : AccessibilityService() {
                 android.content.pm.ActivityInfo.CONFIG_SCREEN_SIZE or android.content.pm.ActivityInfo.CONFIG_DENSITY) != 0
         ) {
             if (::shade.isInitialized) shade.rebuild()
+            if (::volume.isInitialized) volume.recolor()
         }
     }
 
