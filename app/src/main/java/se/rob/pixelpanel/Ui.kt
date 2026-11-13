@@ -148,7 +148,8 @@ object Prefs {
     fun setSystemColors(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("systemColors", v).apply()
 
     /** Keep Gboard as the keyboard: One UI switches back to Samsung Keyboard on its own. */
-    fun keepGboard(ctx: Context) = sp(ctx).getBoolean("keepGboard", false)
+    fun keepGboard(ctx: Context) = sp(ctx).getBoolean("keepGboard",
+        try { ctx.packageManager.getPackageInfo("com.google.android.inputmethod.latin", 0); true } catch (_: Exception) { false })
     fun setKeepGboard(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("keepGboard", v).apply()
     fun hasKeepGboard(ctx: Context) = sp(ctx).contains("keepGboard")
 
