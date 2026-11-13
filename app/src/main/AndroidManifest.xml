@@ -60,7 +60,7 @@
             android:taskAffinity="se.rob.pixelpanel.settings"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@android:style/Theme.DeviceDefault.DayNight.NoActionBar" />
+            android:theme="@android:style/Theme.DeviceDefault.DayNight" />
 
         <activity
             android:name=".OpenShadeActivity"
