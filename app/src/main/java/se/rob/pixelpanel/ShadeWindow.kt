@@ -453,7 +453,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         val sb = ctx.statusBarHeight()
         val tileH = ctx.dpi(72f); val gap = ctx.dpi(8f)
         val qqsH = if (qqsRows >= 2) tileH * 2 + gap else tileH
-        val media = if (mediaH > 0) ctx.dpi(176f) else 0
+        val media = if (mediaH > 0) ctx.dpi(128f) else 0   // qs_media_session_height_collapsed
         geo.qqsTop = sb + ctx.dpi(8f)
         geo.mediaC = geo.qqsTop + qqsH + ctx.dpi(16f)
         geo.hdrBottom = sb + ctx.dpi(120f)            // ShadeHeader.Dimensions.ExpandedHeight
@@ -481,10 +481,11 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         qsMedia?.let { holder ->
             holder.removeAllViews()
             if (media != null) {
-                holder.addView(MediaCard(ctx, pal, media, this), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                holder.addView(MediaCard(ctx, pal, media, this).apply { setCompact(1f - expansion.coerceIn(0f, 1f)) },
+                    FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 holder.visibility = View.VISIBLE
             } else holder.visibility = View.GONE
-            val newMediaH = if (media != null) ctx.dpi(176f) + ctx.dpi(12f) else 0
+            val newMediaH = if (media != null) ctx.dpi(184f) + ctx.dpi(12f) else 0   // _expanded 184 dp
             if (newMediaH != mediaH) {
                 mediaH = newMediaH
                 mediaGap?.let { g -> g.layoutParams = g.layoutParams.apply { height = newMediaH } }
@@ -1028,7 +1029,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         // Media: under the QQS rows when collapsed, between brightness and tiles when expanded
         val mh = FrameLayout(ctx).apply { visibility = View.GONE }
         qsMedia = mh
-        top.addView(mh, abs(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(176f)).apply { leftMargin = pad; rightMargin = pad })
+        top.addView(mh, abs(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dpi(128f)).apply { leftMargin = pad; rightMargin = pad })
 
         val qs = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         qs.addView(pager, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -1150,7 +1151,13 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
             it.translationY = geo.sliderE - ctx.dp(16f) * (1f - c) - sc
             it.visibility = if (c < 0.02f) View.INVISIBLE else View.VISIBLE
         }
-        qsMedia?.translationY = lerp(geo.mediaC.toFloat(), geo.mediaE.toFloat(), c) - sc
+        qsMedia?.let { m ->
+            m.translationY = lerp(geo.mediaC.toFloat(), geo.mediaE.toFloat(), c) - sc
+            // AOSP: 128 dp collapsed player in QQS, 184 dp expanded in QS
+            val h = lerp(ctx.dp(128f), ctx.dp(184f), c).toInt()
+            if (m.layoutParams.height != h) { m.layoutParams = m.layoutParams.apply { height = h } }
+            (m.getChildAt(0) as? MediaCard)?.setCompact(1f - c)
+        }
         qs.translationY = lerp(geo.qqsTop.toFloat(), geo.qsE.toFloat(), c) - sc
         // Only the tile grid is clipped (QQS rows -> full page); media sits below it and never overlaps.
         tilePager?.let { pg ->

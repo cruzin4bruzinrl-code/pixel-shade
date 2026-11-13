@@ -555,6 +555,7 @@ class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStor
 
         // Bottom: previous, progress, next
         val bottom = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        bottomRow = bottom
         fun ctl(sym: String, act: () -> Unit) = SymbolView(ctx, sym, Color.WHITE, 24f).apply { setOnClickListener { act() } }
         bottom.addView(ctl(Sym.SKIP_PREVIOUS) { controller?.transportControls?.skipToPrevious() }, LinearLayout.LayoutParams(ctx.dpi(36f), ctx.dpi(36f)))
         bottom.addView(seek, LinearLayout.LayoutParams(0, ctx.dpi(28f), 1f).apply { marginStart = ctx.dpi(6f); marginEnd = ctx.dpi(6f) })
@@ -562,17 +563,51 @@ class MediaCard(ctx: Context, private val pal: Palette, private val e: NotifStor
         col.addView(bottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = ctx.dpi(8f)
         })
+        // Seeking only on a deliberate sideways drag: a tap or a vertical swipe (pulling the shade)
+        // never moves playback, and a vertical drag is handed back to the shade.
+        val slop = ctx.dp(12f)
+        var downX = 0f; var downY = 0f; var seeking = false
         seek.setOnTouchListener { v, ev ->
-            if (ev.actionMasked == MotionEvent.ACTION_DOWN) v.parent.requestDisallowInterceptTouchEvent(true)
-            if (ev.actionMasked == MotionEvent.ACTION_UP) {
-                val dur = controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
-                if (dur > 0) controller?.transportControls?.seekTo((dur * (ev.x / v.width).coerceIn(0f, 1f)).toLong())
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = ev.x; downY = ev.y; seeking = false; true }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = ev.x - downX; val dy = ev.y - downY
+                    if (!seeking && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.5f && compact < 0.05f) {
+                        seeking = true; v.parent.requestDisallowInterceptTouchEvent(true)
+                    }
+                    if (!seeking && kotlin.math.abs(dy) > slop) return@setOnTouchListener false
+                    if (seeking) { seek.frac = (ev.x / v.width).coerceIn(0f, 1f); seek.invalidate() }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (seeking) {
+                        val dur = controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+                        if (dur > 0) controller?.transportControls?.seekTo((dur * (ev.x / v.width).coerceIn(0f, 1f)).toLong())
+                    }
+                    seeking = false; true
+                }
+                else -> { seeking = false; true }
             }
-            true
         }
         addView(col, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setOnClickListener { host.launch(e.n.contentIntent) }
         bind()
+    }
+
+    private var bottomRow: View? = null
+    /** 0 = expanded (184 dp, with seek row), 1 = collapsed QQS player (128 dp, no seek row). */
+    var compact = 0f
+        private set
+    fun setCompact(f: Float) {
+        compact = f
+        bottomRow?.let { b ->
+            b.alpha = (1f - f * 1.6f).coerceIn(0f, 1f)
+            val h = (context.dp(36f) * (1f - f)).toInt()
+            val lp = b.layoutParams as LinearLayout.LayoutParams
+            val top = (context.dp(8f) * (1f - f)).toInt()
+            if (lp.height != h || lp.topMargin != top) { lp.height = h; lp.topMargin = top; b.layoutParams = lp }
+            b.visibility = if (f > 0.98f) View.INVISIBLE else View.VISIBLE
+        }
     }
 
     private fun applyArtColors(bmp: Bitmap?) {
