@@ -259,7 +259,7 @@ class ShadeService : AccessibilityService() {
         // The home screen class, or any Settings screen opened from the launcher / our shade
         // (One UI resumes the last sub-page when the icon is tapped). Deep links from other apps pass.
         val prev = lastPkg
-        val fromHome = prev == homePkg || prev == packageName
+        val fromHome = prev == homePkg
         if (cls !in settingsHomes && !(fromHome && cls.startsWith("com.android.settings"))) return
         if (now < allowSettingsUntil || now - lastRedirect < 1500) return
         lastRedirect = now; redirects++

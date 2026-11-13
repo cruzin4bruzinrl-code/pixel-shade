@@ -69,7 +69,8 @@ object StressTest {
         val h = bounds?.height() ?: svc.resources.displayMetrics.heightPixels
         val d = svc.resources.displayMetrics.density
         val home = "am start -a android.intent.action.MAIN -c android.intent.category.HOME"
-        val settings = "am start -a android.settings.WIFI_SETTINGS"
+        // Opened from our own app so it is a deep link (not the launcher) and stays One UI
+        val settings = "am start -n ${svc.packageName}/.MainActivity; sleep 1; am start -a android.settings.WIFI_SETTINGS"
         val settingsHome = "am start -a android.settings.SETTINGS"
 
         step { done ->

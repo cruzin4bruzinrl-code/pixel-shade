@@ -1017,7 +1017,7 @@ class ShadeWindow(private val ctx: Context, private val wm: WindowManager) : Not
         }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)).apply { marginEnd = ctx.dpi(10f) })
         footer.addView(SymbolView(ctx, Sym.SETTINGS, pal.onSurface, 20f, filled = true).apply {
             background = circleBg(pal.tileOff)
-            setOnClickListener { startSettings(Intent(Settings.ACTION_SETTINGS)) }
+            setOnClickListener { startSettings(if (Prefs.pixelSettings(ctx)) Intent(ctx, PixelSettingsActivity::class.java) else Intent(Settings.ACTION_SETTINGS)) }
             setOnLongClickListener { startSettings(Intent(ctx, MainActivity::class.java)); true }
         }, LinearLayout.LayoutParams(ctx.dpi(40f), ctx.dpi(40f)))
         footer.addView(SymbolView(ctx, Sym.POWER_SETTINGS_NEW, pal.onPrimary, 20f, filled = true).apply {
