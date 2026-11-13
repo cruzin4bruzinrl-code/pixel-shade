@@ -17,6 +17,7 @@
 
     <!-- App names and icons for notification cards -->
     <queries>
+        <package android:name="com.google.android.inputmethod.latin" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

@@ -78,6 +78,39 @@ class MainActivity : Activity() {
             }
         }
 
+        // Gboard: the same app Pixel 10 ships; set it as the keyboard instead of Samsung Keyboard
+        card("Tangentbord (Gboard som på Pixel)") { c ->
+            val gb = "com.google.android.inputmethod.latin"
+            val ime = "$gb/com.android.inputmethod.latin.LatinIME"
+            val installed = try { packageManager.getPackageInfo(gb, 0); true } catch (_: Exception) { false }
+            val current = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) ?: ""
+            val active = current.startsWith(gb)
+            c.addView(text(when {
+                !installed -> "Gboard är inte installerat."
+                active -> "Gboard är ditt tangentbord. Välj tema \"Dynamisk färg\" i Gboard så följer det bakgrunden som på Pixel."
+                else -> "Samsung Keyboard används nu."
+            }, 13f, pal.onSurfaceVariant).apply { setPadding(0, 0, 0, dpi(8f)) })
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            if (!installed) row.addView(button("Installera Gboard", filled = true) {
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$gb"))) } catch (_: Exception) { }
+            }) else {
+                if (!active) row.addView(button("Använd Gboard", filled = true) {
+                    if (!Shell.granted()) { Shell.requestPermission(); return@button }
+                    Shell.run("ime enable $ime; ime set $ime") { ok -> recreate() }
+                })
+                if (!active) row.addView(space(dpi(8f)))
+                row.addView(button("Gboard-tema", filled = active) {
+                    try {
+                        startActivity(Intent().setClassName(gb, "com.google.android.apps.inputmethod.latin.preference.SettingsActivity")
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (_: Exception) {
+                        try { startActivity(packageManager.getLaunchIntentForPackage(gb)) } catch (_: Exception) { }
+                    }
+                })
+            }
+            c.addView(row)
+        }
+
         // Stress test: drives the phone itself and reports what really showed up on screen
         card("Stresstest") { c ->
             c.addView(text("Telefonen sveper, trycker på volymknapparna och öppnar panelen i olika appar " +
