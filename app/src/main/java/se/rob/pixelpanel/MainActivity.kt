@@ -58,6 +58,17 @@ class MainActivity : Activity() {
             setPadding(0, dpi(4f), 0, dpi(16f))
         })
 
+        card(if (Revert.isOff(this)) "Allt Pixel är avstängt" else "Stäng av allt") { c ->
+            c.addView(text(if (Revert.isOff(this)) "Slå på Pixelpanel igen under Inställningar → Tillgänglighet om du vill ha tillbaka panelen."
+                else "Återställer Samsungs färger, One UI-hemskärmen, Samsung Keyboard och One UI-panelen, och stänger av Pixels volympanel och Inställningar.", 13f, pal.onSurfaceVariant).apply {
+                setPadding(0, 0, 0, dpi(10f))
+            })
+            if (Revert.isOff(this)) c.addView(button("Slå på igen", filled = false) { Revert.undo(this); recreate() })
+            else c.addView(button("Stäng av allt", filled = true) {
+                Revert.all(this) { msg -> android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show(); recreate() }
+            })
+        }
+
         // Last crash, if any
         CrashLog.read(this)?.let { log ->
             card("Senaste krasch") { c ->
