@@ -208,7 +208,8 @@ class VolumePanel(private val ctx: Context, private val wm: WindowManager) {
     private fun resetTimeout() {
         main.removeCallbacks(timeout)
         if (!isShowing) return
-        val t = Settings.Secure.getInt(ctx.contentResolver, "volume_dialog_dismiss_timeout", 3000)
+        // VOLUME_DIALOG_DISMISS_TIMEOUT is @hide and unreadable for apps since Android 12: use AOSP's default 3 s
+        val t = try { Settings.Secure.getInt(ctx.contentResolver, "volume_dialog_dismiss_timeout", 3000) } catch (_: Exception) { 3000 }
         main.postDelayed(timeout, t.toLong())
     }
 

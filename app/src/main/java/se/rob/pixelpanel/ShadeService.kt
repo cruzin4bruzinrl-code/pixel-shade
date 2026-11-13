@@ -232,8 +232,12 @@ class ShadeService : AccessibilityService() {
         val fg = lastPkg ?: ""
         if ("camera" in fg.lowercase()) return false
         if (event.action == android.view.KeyEvent.ACTION_DOWN) {
-            volume.onVolumeKey(code == android.view.KeyEvent.KEYCODE_VOLUME_UP)
             StressTest.keySeen++
+            try { volume.onVolumeKey(code == android.view.KeyEvent.KEYCODE_VOLUME_UP) } catch (t: Throwable) {
+                // Never take the volume keys down with us: log it and let One UI handle this press.
+                CrashLog.write(this, "volym", t)
+                return false
+            }
         }
         return true
     }

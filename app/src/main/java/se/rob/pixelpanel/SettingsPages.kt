@@ -216,19 +216,19 @@ object SettingsPages {
         Footer("Med Databesparing kan du minska dataanvändningen genom att förhindra att vissa appar skickar och tar emot data i bakgrunden."),
     ))
 
-    private fun privateDnsSummary(a: Context) = when (Settings.Global.getString(a.contentResolver, "private_dns_mode")) {
+    private fun privateDnsSummary(a: Context) = when (try { Settings.Global.getString(a.contentResolver, "private_dns_mode") } catch (_: Exception) { null }) {
         "off" -> "Av"
-        "hostname" -> Settings.Global.getString(a.contentResolver, "private_dns_specifier") ?: "Värdnamn"
+        "hostname" -> (try { Settings.Global.getString(a.contentResolver, "private_dns_specifier") } catch (_: Exception) { null }) ?: "Värdnamn"
         else -> "Automatiskt"
     }
     private fun privateDns(a: PixelSettingsActivity) {
-        val cur = when (Settings.Global.getString(a.contentResolver, "private_dns_mode")) { "off" -> 0; "hostname" -> 2; else -> 1 }
+        val cur = when (try { Settings.Global.getString(a.contentResolver, "private_dns_mode") } catch (_: Exception) { null }) { "off" -> 0; "hostname" -> 2; else -> 1 }
         PDialog.choose(a, "Privat DNS", listOf("Av", "Automatiskt", "Värdnamn för privat DNS-leverantör"), cur) { sel ->
             when (sel) {
                 0 -> put(a, "global", "private_dns_mode", "off")
                 1 -> put(a, "global", "private_dns_mode", "opportunistic")
                 else -> PDialog.edit(a, "Värdnamn för privat DNS-leverantör",
-                    Settings.Global.getString(a.contentResolver, "private_dns_specifier") ?: "dns.google") { host ->
+                    (try { Settings.Global.getString(a.contentResolver, "private_dns_specifier") } catch (_: Exception) { null }) ?: "dns.google") { host ->
                     put(a, "global", "private_dns_specifier", host.trim()) { put(a, "global", "private_dns_mode", "hostname") }
                 }
             }
@@ -507,7 +507,7 @@ object SettingsPages {
 
     // ---- Om telefonen -----------------------------------------------------------------------------
 
-    private fun deviceName(a: Context) = Settings.Global.getString(a.contentResolver, "device_name") ?: Build.MODEL
+    private fun deviceName(a: Context) = (try { Settings.Global.getString(a.contentResolver, "device_name") } catch (_: Exception) { null }) ?: Build.MODEL
 
     private fun about(a: PixelSettingsActivity) = Spec("about", "Om telefonen", listOf(
         Custom { act ->
