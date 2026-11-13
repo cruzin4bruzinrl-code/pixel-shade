@@ -450,7 +450,12 @@ class ShadeService : AccessibilityService() {
                     stripTouching = false
                     vt?.addMovement(e)
                     vt?.computeCurrentVelocity(1000)
+                    // The main thread may have been busy (first open): moves get coalesced, so take
+                    // the finger's final position from the UP event itself before releasing.
+                    val upDy = e.rawY - downY
+                    if (!dragging && upDy > slop) { dragging = true; downY += slop; shade.beginDrag(e.eventTime) }
                     if (dragging) {
+                        shade.dragTo(e.rawY - downY)
                         shade.release(vt?.yVelocity ?: 0f)
                     } else {
                         if (e.eventTime - lastTapUp < ViewConfiguration.getDoubleTapTimeout()) {
