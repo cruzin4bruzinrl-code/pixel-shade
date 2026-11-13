@@ -177,12 +177,50 @@ object WallSeed {
         (c ?: 1).also { cached = it }
     }
 
+    private fun saveThumb(ctx: Context, shot: android.graphics.Bitmap) {
+        try {
+            val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false) ?: return
+            val tw = 360; val th = soft.height * tw / soft.width
+            java.io.File(ctx.filesDir, "home.jpg").outputStream().use {
+                android.graphics.Bitmap.createScaledBitmap(soft, tw, th, true).compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it)
+            }
+        } catch (_: Exception) { }
+    }
+
+    /** True once the system's own wallpaper seed colours have been read (screenshots are then not needed). */
+    @Volatile var fromSystem = false
+
+    /**
+     * Reads the seed colours Android itself computed for the home wallpaper (WallpaperManagerService,
+     * "dumpsys wallpaper": mPrimarySemColors [SeedColors, [...]]) – the same input Pixel's Monet uses.
+     * Samsung doesn't hand them to apps, but the shell can read them through Shizuku.
+     */
+    fun readSystem(ctx: Context, changed: () -> Unit) {
+        if (!Shell.granted()) return
+        Shell.output("dumpsys wallpaper") { out ->
+            val block = out?.substringAfter("mPrimarySemColors", "") ?: ""
+            val m = Regex("SeedColors,\\s*\\[([-0-9, ]+)\\]").find(block) ?: return@output
+            val seeds = m.groupValues[1].split(',').mapNotNull { it.trim().toIntOrNull() }.take(4)
+            if (seeds.isEmpty()) return@output
+            fromSystem = true
+            Prefs.setWallSeeds(ctx, seeds)
+            val seed = seeds[Prefs.wallChoice(ctx).coerceIn(0, seeds.size - 1)]
+            if (seed != Prefs.wallSeed(ctx)) {
+                Prefs.setWallSeed(ctx, seed); cached = seed
+                StressTest.recolors++
+                changed()
+            }
+        }
+    }
+
     /** Picks a seed the way Monet does (quantize + score) from a screenshot of the home screen. */
     fun learn(ctx: Context, shot: android.graphics.Bitmap, changed: () -> Unit) {
         worker.execute {
+            if (fromSystem) { saveThumb(ctx, shot); return@execute }
             try {
+                saveThumb(ctx, shot)
                 val soft = shot.copy(android.graphics.Bitmap.Config.ARGB_8888, false) ?: return@execute
-                try {
+                if (false) try {
                     val tw = 360; val th = soft.height * tw / soft.width
                     java.io.File(ctx.filesDir, "home.jpg").outputStream().use {
                         android.graphics.Bitmap.createScaledBitmap(soft, tw, th, true).compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it)

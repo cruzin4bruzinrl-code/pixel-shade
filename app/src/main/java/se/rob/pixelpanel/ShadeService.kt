@@ -95,6 +95,7 @@ class ShadeService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        mainHandler.postDelayed({ try { if (::shade.isInitialized) readSystemColours() } catch (_: Throwable) { } }, 3000)
         try { start() } catch (t: Throwable) {
             // Never crash-loop: record why and stay idle so Samsung's shade keeps working.
             CrashLog.write(this, "start", t)
@@ -174,7 +175,16 @@ class ShadeService : AccessibilityService() {
     private fun overlaysHidden() = ::shade.isInitialized && !shade.isOpen && shade.progress == 0f &&
         !(::volume.isInitialized && volume.isShowing)
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var lastSystemRead = 0L
+    private fun readSystemColours() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastSystemRead < 15_000) return
+        lastSystemRead = now
+        WallSeed.readSystem(this) { shade.recolor(); if (::volume.isInitialized) volume.recolor() }
+    }
+
     private val learnFromHome = Runnable {
+        readSystemColours()
         if (lastPkg != homePkg || !overlaysHidden()) return@Runnable
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastShot < 400) return@Runnable

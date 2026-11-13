@@ -315,8 +315,9 @@ object StressTest {
 
         // Where One UI keeps its own colour palette (to take it over next).
         step { done ->
-            Shell.output("for t in system secure global; do settings list \$t | grep -iE 'theme|palette|monet|wallpapercolor|color_source|accent' | sed \"s/^/\$t:/\"; done") { out ->
-                info("One UI:s färginställningar: " + (out?.replace("\n", " | ")?.take(1500) ?: "inget"))
+            Shell.output("settings list system | grep -iE 'wallpapertheme|themepark|colortheme'; echo secure:; settings get secure theme_customization_overlay_packages") { out ->
+                info("One UI:s färginställningar: " + (out?.replace("\n", " | ")?.take(2500) ?: "inget"))
+                info("bakgrundsfärger från systemet: " + (if (WallSeed.fromSystem) Prefs.wallSeeds(svc).joinToString { "#%06X".format(it and 0xFFFFFF) } else "inte lästa"))
                 done()
             }
         }
