@@ -109,6 +109,19 @@ class MainActivity : Activity() {
                 })
             }
             c.addView(row)
+            if (installed) {
+                val status = text("", 13f, pal.onSurface).apply { setPadding(0, dpi(8f), 0, 0) }
+                val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dpi(10f), 0, 0) }
+                row2.addView(button("Pixel-färger i systemet", filled = true) {
+                    if (!Shell.granted()) { Shell.requestPermission(); return@button }
+                    status.text = "Skriver Pixel-färgen och kontrollerar…"
+                    SystemColors.apply(this) { status.text = it }
+                })
+                row2.addView(space(dpi(8f)))
+                row2.addView(button("Återställ", filled = false) { SystemColors.restore(this) { status.text = it } })
+                c.addView(row2)
+                c.addView(status)
+            }
         }
 
         // Stress test: drives the phone itself and reports what really showed up on screen

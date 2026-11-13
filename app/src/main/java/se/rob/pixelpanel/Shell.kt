@@ -38,6 +38,18 @@ object Shell {
         }
     }
 
+    /** Runs [cmd] and hands its stdout (null on failure) to [done] on the main thread. */
+    fun output(cmd: String, done: (String?) -> Unit) {
+        exec.execute {
+            val out = try {
+                val p = newProcess(arrayOf("sh", "-c", cmd))
+                val o = p.inputStream.readBytes().toString(Charsets.UTF_8); p.errorStream.readBytes()
+                if (p.waitFor() == 0) o.trim() else null
+            } catch (_: Throwable) { null }
+            main.post { done(out) }
+        }
+    }
+
     // Shizuku.newProcess is hidden in API 13 but still present; it is the simplest way to run a command.
     private fun newProcess(cmd: Array<String>): Process {
         val m = Shizuku::class.java.getDeclaredMethod(
