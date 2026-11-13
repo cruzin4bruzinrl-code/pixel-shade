@@ -46,7 +46,7 @@ object StressTest {
             try { s { next() } } catch (t: Throwable) { fail("krasch i steg: ${t.javaClass.simpleName}: ${t.message}"); next() }
         }
     }
-    private fun wait(ms: Long) = step { done -> main.postDelayed(done, ms) }
+    private fun pause(ms: Long) = step { done -> main.postDelayed(done, ms) }
     private fun sh(cmd: String) = step { done -> Shell.run(cmd) { done() } }
 
     fun start(ctx: Context) {
@@ -81,7 +81,7 @@ object StressTest {
 
         // 1. Pull-down from the status bar, at the left, middle and right, over home and over an app.
         for ((label, launch) in listOf("hemskärm" to home, "Inställningar" to settings)) {
-            sh(launch); wait(1500)
+            sh(launch); pause(1500)
             for ((xl, xf) in listOf("vänster" to 0.08f, "mitten" to 0.5f, "höger" to 0.92f)) {
                 val x = (w * xf).toInt()
                 step { done ->
@@ -105,7 +105,7 @@ object StressTest {
                     }
                 }
                 step { done -> shade.close(); done() }
-                wait(800)
+                pause(800)
                 step { done ->
                     if (svc.samsungShadeVisible()) fail("One UI-panelen ligger kvar efter stängning")
                     done()
@@ -114,7 +114,7 @@ object StressTest {
         }
 
         // 2. Swipe down in the middle of the home screen (One UI Home opens Samsung's panel there).
-        sh(home); wait(1500)
+        sh(home); pause(1500)
         step { done ->
             var samsungSeen = false
             Shell.run("input swipe ${w / 2} ${(h * 0.3f).toInt()} ${w / 2} ${(h * 0.75f).toInt()} 250")
@@ -130,25 +130,25 @@ object StressTest {
             }
         }
         step { done -> shade.close(); done() }
-        wait(800)
+        pause(800)
 
         // 3. Layout through the whole expansion.
         step { done -> svc.openShade(); done() }
-        wait(900)
+        pause(900)
         step { done -> shade.diagnostics().forEach { fail("hopfällt läge: $it") }; shade.expandTo(0.5f); done() }
-        wait(700)
+        pause(700)
         step { done -> shade.diagnostics().forEach { fail("halvvägs utfällt: $it") }; shade.expandTo(1f); done() }
-        wait(900)
+        pause(900)
         step { done ->
             val diag = shade.diagnostics()
             diag.forEach { fail("utfällt läge: $it") }
             if (diag.isEmpty()) ok("layout hopfällt / halvvägs / utfällt utan överlapp")
             shade.close(); done()
         }
-        wait(900)
+        pause(900)
 
         // 4. Volume keys.
-        sh(home); wait(1200)
+        sh(home); pause(1200)
         val am = svc.getSystemService(AudioManager::class.java)
         var before = 0; var keys = 0
         step { done -> before = am.getStreamVolume(AudioManager.STREAM_MUSIC); keys = keySeen; done() }
@@ -169,7 +169,7 @@ object StressTest {
             }
         }
         sh("input keyevent KEYCODE_VOLUME_DOWN")
-        wait(400)
+        pause(400)
         step { done ->
             val now = am.getStreamVolume(AudioManager.STREAM_MUSIC)
             if (now != before) fail("volym ner: tillbaka till $now, väntat $before") else ok("volym ner återställer ($now)")
@@ -184,7 +184,7 @@ object StressTest {
                 done()
             }
         }
-        wait(3600)
+        pause(3600)
         step { done ->
             if (svc.volume.isShowing) fail("volympanelen stängdes inte efter 3 s") else ok("volympanelen stängs själv efter 3 s")
             if (am.getStreamVolume(AudioManager.STREAM_MUSIC) != before) am.setStreamVolume(AudioManager.STREAM_MUSIC, before, 0)
@@ -192,16 +192,16 @@ object StressTest {
         }
 
         // 5. Rapid open/close: the frosted backdrop must never drop to white.
-        sh(settings); wait(1500)
+        sh(settings); pause(1500)
         var white = 0
         repeat(10) {
             step { done -> svc.openShade(); done() }
-            wait(500)
+            pause(500)
             step { done ->
                 if (!shade.blurSupported && !shade.hasBackdrop) white++
                 shade.close(); done()
             }
-            wait(350)
+            pause(350)
         }
         step { done ->
             if (white > 0) fail("snabb öppna/stäng: helvit bakgrund $white av 10 gånger") else ok("snabb öppna/stäng ×10: alltid frostad bakgrund")
