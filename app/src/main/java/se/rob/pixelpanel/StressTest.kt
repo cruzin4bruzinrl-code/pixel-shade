@@ -313,6 +313,14 @@ object StressTest {
             }
         }
 
+        // Where One UI keeps its own colour palette (to take it over next).
+        step { done ->
+            Shell.output("for t in system secure global; do settings list \$t | grep -iE 'theme|palette|monet|wallpapercolor|color_source|accent' | sed \"s/^/\$t:/\"; done") { out ->
+                info("One UI:s färginställningar: " + (out?.replace("\n", " | ")?.take(1500) ?: "inget"))
+                done()
+            }
+        }
+
         // 10. Pixel home: Lawnchair and the Google apps.
         step { done ->
             val l = PixelHome.lawnchair(svc)
